@@ -1,0 +1,15 @@
+jupyterlab
+torch
+torchvision
+numpy
+matplotlib
+pillow
+scipy
+lmdb
+svgpathtools
+svgwrite
+gdown
+beautifulsoup4
+lxml
+shapely
+networkx
