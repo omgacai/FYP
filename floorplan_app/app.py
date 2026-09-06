@@ -14,6 +14,7 @@ from PIL import Image
 import streamlit.components.v1 as components
 
 from floorplan_app.core.registry import registry
+from floorplan_app.core.models import SVGResult
 from floorplan_app.pipeline.graph_extractor import extract_graph
 from floorplan_app.pipeline.svg_extractor import extract_svg
 import floorplan_app.parsers  # Registers built-in adapters.
@@ -92,25 +93,53 @@ def run_pipeline(parser_name: str, image_bytes: bytes, image_suffix: str, max_si
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+@st.cache_data(show_spinner=False)
+def run_svg_pipeline(svg_bytes: bytes, svg_label: str, pipeline_revision: str):
+    """Run CubiGraph directly on an uploaded CubiGraph-compatible SVG."""
+    svg_text = svg_bytes.decode('utf-8')
+    if '<svg' not in svg_text.lower():
+        raise ValueError('The uploaded file does not contain an SVG root element.')
+    OUTPUT_DIR.mkdir(exist_ok=True)
+    source_path = OUTPUT_DIR / 'uploaded_model.svg'
+    source_path.write_text(svg_text, encoding='utf-8')
+    svg_result = SVGResult(
+        svg_text=svg_text,
+        path=source_path,
+        diagnostics={'source': 'uploaded SVG', 'filename': svg_label},
+    )
+    graph = extract_graph(svg_result, CUBIGRAPH_REPO, OUTPUT_DIR / 'uploaded_cubigraph_relations.svg')
+    return svg_result, graph
+
+
 st.set_page_config(page_title='Floorplan Pipeline Inspector', layout='wide')
 st.title('Floorplan → SVG → Graph Inspector')
 st.caption('Use this to locate whether an error began in image parsing, SVG conversion, or deterministic graph extraction.')
 
 with st.sidebar:
     st.header('Pipeline controls')
-    parser_name = st.selectbox('Parser', registry.names(), help='New parsers appear here when registered in parsers/.')
-    parser = registry.create(parser_name)
-    st.caption(parser.description)
-    source_choice = st.radio('Image source', ['Default image', 'Upload image'])
-    max_side = st.slider('Maximum input side (px)', 512, 1600, 1024, step=128)
-    threshold = st.slider('Structure post-processing threshold', 0.05, 0.60, 0.20, step=0.05)
-    st.caption('Lower threshold finds more walls/openings but can introduce noise.')
+    source_choice = st.radio('Pipeline input', ['Default image', 'Upload image', 'Upload SVG'])
+    if source_choice != 'Upload SVG':
+        parser_name = st.selectbox('Parser', registry.names(), help='New parsers appear here when registered in parsers/.')
+        parser = registry.create(parser_name)
+        st.caption(parser.description)
+        max_side = st.slider('Maximum input side (px)', 512, 1600, 1024, step=128)
+        threshold = st.slider('Structure post-processing threshold', 0.05, 0.60, 0.20, step=0.05)
+        st.caption('Lower threshold finds more walls/openings but can introduce noise.')
+    else:
+        st.caption('Skip image parsing and run CubiGraph directly on an SVG.')
     if st.button('Clear cached pipeline result'):
         run_pipeline.clear()
+        run_svg_pipeline.clear()
         st.session_state.pop('latest', None)
         st.experimental_rerun()
 
-if source_choice == 'Upload image':
+if source_choice == 'Upload SVG':
+    uploaded_svg = st.file_uploader('Upload a CubiGraph-compatible SVG', type=['svg'])
+    if uploaded_svg is None:
+        st.info('Upload an SVG to run CubiGraph directly.')
+        st.stop()
+    svg_bytes, image_label = uploaded_svg.getvalue(), uploaded_svg.name
+elif source_choice == 'Upload image':
     uploaded = st.file_uploader('Upload a floor-plan image', type=['png', 'jpg', 'jpeg'])
     if uploaded is None:
         st.info('Upload an image to run the pipeline.')
@@ -125,10 +154,16 @@ else:
 if st.button('Run pipeline', type='primary'):
     with st.spinner('Running parser, SVG extraction, then CubiGraph…'):
         try:
-            parsed, svg_result, graph = run_pipeline(
-                parser_name, image_bytes, image_suffix, max_side, threshold, PIPELINE_REVISION
-            )
-            st.session_state['latest'] = (parsed, svg_result, graph, image_label)
+            if source_choice == 'Upload SVG':
+                svg_result, graph = run_svg_pipeline(svg_bytes, image_label, PIPELINE_REVISION)
+                st.session_state['latest'] = {'mode': 'svg', 'svg': svg_result, 'graph': graph, 'label': image_label}
+            else:
+                parsed, svg_result, graph = run_pipeline(
+                    parser_name, image_bytes, image_suffix, max_side, threshold, PIPELINE_REVISION
+                )
+                st.session_state['latest'] = {
+                    'mode': 'image', 'parsed': parsed, 'svg': svg_result, 'graph': graph, 'label': image_label,
+                }
         except Exception as error:
             st.exception(error)
             st.stop()
@@ -137,7 +172,31 @@ if 'latest' not in st.session_state:
     st.info('Select a parser and click **Run pipeline**.')
     st.stop()
 
-parsed, svg_result, graph, image_label = st.session_state['latest']
+latest = st.session_state['latest']
+if latest['mode'] == 'svg':
+    svg_result, graph, image_label = latest['svg'], latest['graph'], latest['label']
+    st.success(f'Completed: {image_label} through CubiGraph (SVG-only mode)')
+    metric_columns = st.columns(3)
+    metric_columns[0].metric('Graph nodes', graph.diagnostics['nodes'])
+    metric_columns[1].metric('Adjacency edges', graph.diagnostics['adjacent_edges'])
+    metric_columns[2].metric('Door-connected edges', graph.diagnostics['door_connected_edges'])
+    tab_svg, tab_graph, tab_diagnose = st.tabs(['1 · Input SVG', '2 · Graph', '3 · Diagnose'])
+    with tab_svg:
+        st.caption('Uploaded SVG passed directly to CubiGraph; no image parser was run.')
+        show_svg(svg_result.svg_text)
+        st.download_button('Download uploaded SVG', svg_result.svg_text, file_name='model.svg', mime='image/svg+xml')
+    with tab_graph:
+        st.caption('Door-first experimental policy: dashed edge = shared SVG Door; solid edge = adjacency only when no shared door is detected.')
+        show_svg(graph.svg_text)
+        st.json(graph.adjacency)
+        st.download_button('Download graph SVG', graph.svg_text, file_name='cubigraph_relations.svg', mime='image/svg+xml')
+        st.download_button('Download adjacency JSON', graph.diagnostics['adjacency_json'], file_name='cubigraph_adjacency.json', mime='application/json')
+    with tab_diagnose:
+        st.json({'svg': svg_result.diagnostics, 'graph': graph.diagnostics})
+        st.caption('CubiGraph expects Space groups and optional Door Threshold groups. A valid XML SVG can still produce an incomplete graph if those semantic classes or polygons are missing.')
+    st.stop()
+
+parsed, svg_result, graph, image_label = latest['parsed'], latest['svg'], latest['graph'], latest['label']
 st.success(f'Completed: {image_label} with {parsed.parser_name}')
 
 metric_columns = st.columns(5)
