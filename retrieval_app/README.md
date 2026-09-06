@@ -112,9 +112,17 @@ export HF_HOME=~/aigc-storage/fyp-model-cache/huggingface
 export TOKENIZERS_PARALLELISM=false
 
 cd ~/vlm/code/FYP
-source ~/vlm/.venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements_vlm_graph.txt
+mkdir -p slurm/logs
+
+# Never run `pip install torch` on xlogin. Build the CUDA PyTorch environment once
+# inside the proven A100-80 Slurm allocation.
+sbatch slurm/bootstrap_qwen_a100_env.sbatch
+```
+
+Wait for the bootstrap job to finish, then confirm this file exists:
+
+```bash
+test -f ~/aigc-storage/fyp-envs/qwen-a100-cu121/.ready && echo "Qwen environment ready"
 ```
 
 Sync this code from the Mac before running the commands below. Use a GPU allocation
@@ -124,7 +132,6 @@ on the cluster; do **not** run the 8B model on `xlogin`.
 
 ```bash
 cd ~/vlm/code/FYP
-source ~/vlm/.venv/bin/activate
 export HF_HOME=~/aigc-storage/fyp-model-cache/huggingface
 
 # Run this inside an allocated GPU shell, with the same model and settings for every plan.
@@ -141,7 +148,8 @@ resumes automatically if the output JSONL already exists; add `--overwrite` only
 when deliberately replacing a condition.
 
 For the SoC A100-80 environment, an equivalent Slurm job is included at
-`slurm/qwen3vl_graph.sbatch`. Validate the GPU request, then submit it:
+`slurm/qwen3vl_graph.sbatch`; it uses the ready environment created above.
+Validate the GPU request, then submit it:
 
 ```bash
 cd ~/vlm/code/FYP

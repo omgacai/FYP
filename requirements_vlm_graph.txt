@@ -1,6 +1,5 @@
-# Install in the GPU environment only. Do not put the model cache in your home quota.
-torch
-torchvision
+# Install after PyTorch is present in the persistent A100 environment.
+# Deliberately exclude torch/torchvision: never download CUDA PyTorch on xlogin.
 transformers>=4.57.0
 accelerate
 qwen-vl-utils
