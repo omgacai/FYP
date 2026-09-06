@@ -1,0 +1,3 @@
+{"plan_id": "local-floor", "image_path": "../../input/floor.jpg", "description": "Local visual-only dashboard sample.", "graph_provenance": "unavailable", "metadata": {"purpose": "UI smoke test only"}}
+{"plan_id": "local-cubi", "image_path": "../../input/cubi.png", "description": "Local visual-only dashboard sample.", "graph_provenance": "unavailable", "metadata": {"purpose": "UI smoke test only"}}
+{"plan_id": "local-sg", "image_path": "../../input/sg.jpg", "description": "Local visual-only dashboard sample.", "graph_provenance": "unavailable", "metadata": {"purpose": "UI smoke test only"}}

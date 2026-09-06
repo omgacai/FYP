@@ -15,7 +15,9 @@ from retrieval_app.services.retriever import FusionWeights, retrieve
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_MANIFEST = PROJECT_ROOT / "data" / "cubicasa5k" / "manifests" / "cubicasa_image_svg.jsonl"
+CORPUS_MANIFEST = PROJECT_ROOT / "data" / "cubicasa5k" / "manifests" / "cubicasa_image_svg.jsonl"
+DEMO_MANIFEST = Path(__file__).resolve().parent / "data" / "demo_manifest.jsonl"
+DEFAULT_MANIFEST = CORPUS_MANIFEST if CORPUS_MANIFEST.exists() else DEMO_MANIFEST
 
 
 @st.cache_resource(show_spinner=False)
@@ -30,6 +32,8 @@ def _display_score(value: float | None) -> str:
 st.set_page_config(page_title="Floorplan Retrieval Lab", layout="wide")
 st.title("Floorplan Retrieval Lab")
 st.caption("Compare visual, room-graph, and geometry evidence before training a fusion model.")
+if DEFAULT_MANIFEST == DEMO_MANIFEST:
+    st.info("Local visual-only demo corpus: use it to test the UI and optional CLIP. Build a CubiCasa manifest before reporting graph or geometry results.")
 
 with st.sidebar:
     st.header("Corpus")

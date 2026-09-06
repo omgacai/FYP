@@ -5,7 +5,7 @@ import sys
 import warnings
 from pathlib import Path
 
-from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
+from bs4 import BeautifulSoup, FeatureNotFound, XMLParsedAsHTMLWarning
 
 from floorplan_app.core.models import GraphResult, SVGResult
 
@@ -45,7 +45,21 @@ def extract_graph(svg_result: SVGResult, cubigraph_repo: Path, output_path: Path
     from plan import Plan
 
     warnings.filterwarnings('ignore', category=XMLParsedAsHTMLWarning)
-    soup = BeautifulSoup(svg_result.svg_text, 'lxml')
+    # The cluster may intentionally keep the login-home environment tiny.  lxml
+    # is preferable for SVG/XML, but CubiGraph only needs basic tag traversal;
+    # fall back to Python's built-in parser so a small inspection job does not
+    # fail solely because the optional C-extension cannot be installed.
+    try:
+        soup = BeautifulSoup(svg_result.svg_text, 'lxml')
+        parser_backend = 'lxml'
+    except FeatureNotFound:
+        warnings.warn(
+            'lxml is unavailable; using Python html.parser for CubiGraph SVG parsing. '
+            'Install lxml in a quota-safe environment before large-scale runs.',
+            RuntimeWarning,
+        )
+        soup = BeautifulSoup(svg_result.svg_text, 'html.parser')
+        parser_backend = 'html.parser fallback'
     plan = Plan(soup.find('svg'))
     generate_door_first_relations(plan)
     adjacency = plan.get_adjacency_list()
@@ -63,6 +77,7 @@ def extract_graph(svg_result: SVGResult, cubigraph_repo: Path, output_path: Path
             'nodes': len(adjacency), 'adjacent_edges': relation_counts[1],
             'door_connected_edges': relation_counts[2],
             'relation_policy': 'door-first experimental',
+            'svg_parser_backend': parser_backend,
             'adjacency_json': json.dumps(adjacency, indent=2),
         },
     )
