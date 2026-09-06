@@ -37,10 +37,11 @@ python3 -m venv "$VENV_DIR"
 source "$VENV_DIR/bin/activate"
 python -m pip install --upgrade pip
 
-# The exact CUDA 12.1 combination documented in the established SoC A100 setup.
+# Qwen's current Transformers processor requires PyTorch >= 2.5.  Keep the
+# CUDA 12.1 pair explicit so the persistent A100 environment is reproducible.
 python -m pip install --no-cache-dir \
   --index-url https://download.pytorch.org/whl/cu121 \
-  torch==2.4.1 torchvision==0.19.1
+  torch==2.5.1 torchvision==0.20.1
 
 cd "$REPO_DIR"
 python -m pip install --no-cache-dir -r requirements_vlm_graph.txt
