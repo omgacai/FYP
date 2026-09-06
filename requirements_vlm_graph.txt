@@ -1,0 +1,7 @@
+# Install in the GPU environment only. Do not put the model cache in your home quota.
+torch
+torchvision
+transformers>=4.57.0
+accelerate
+qwen-vl-utils
+pillow
