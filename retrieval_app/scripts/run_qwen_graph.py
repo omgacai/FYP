@@ -113,9 +113,15 @@ def main() -> None:
             messages = make_messages(supports, image_path)
             # qwen-vl-utils loads local image paths and creates correctly ordered vision tensors.
             image_inputs, video_inputs = process_vision_info(messages)
-            inputs = processor.apply_chat_template(
-                messages, tokenize=True, add_generation_prompt=True, return_dict=True,
-                return_tensors="pt", images=image_inputs, videos=video_inputs,
+            # Keep chat templating (text) and multimodal tensor construction
+            # separate. Passing ``images`` to ``apply_chat_template`` as well
+            # duplicates locally referenced images in current Transformers.
+            prompt_text = processor.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True,
+            )
+            inputs = processor(
+                text=[prompt_text], images=image_inputs, videos=video_inputs,
+                padding=True, return_tensors="pt",
             ).to(model.device)
             with torch.inference_mode():
                 generated = model.generate(**inputs, do_sample=False, max_new_tokens=args.max_new_tokens)
