@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Direct Qwen floorplan-image-to-graph experiment. Submit from ~/vlm/code/FYP.
-# Override VLM_MODE, VLM_SUPPORT, VLM_LIMIT, VLM_RUN_NAME with sbatch --export.
+# Override VLM_MODE, VLM_REPRESENTATION, VLM_SUPPORT, VLM_LIMIT, VLM_RUN_NAME with sbatch --export.
 #SBATCH --job-name=qwen3vl-graph
 #SBATCH --partition=gpu
 #SBATCH --nodelist=xgph0
@@ -18,11 +18,16 @@ REPO_DIR="${REPO_DIR:-$PROJECT_DIR/code/FYP}"
 CACHE_ROOT="${CACHE_ROOT:-$HOME/aigc-storage/fyp-model-cache}"
 VENV_DIR="${VENV_DIR:-$HOME/aigc-storage/fyp-envs/qwen-a100-cu121}"
 VLM_MODE="${VLM_MODE:-zero}"
+VLM_REPRESENTATION="${VLM_REPRESENTATION:-semantic}"
 VLM_LIMIT="${VLM_LIMIT:-20}"
 VLM_RUN_NAME="${VLM_RUN_NAME:-qwen3vl8b_${VLM_MODE}_${VLM_LIMIT}}"
 
 if [[ "$VLM_MODE" != "zero" && "$VLM_MODE" != "few" ]]; then
   echo "VLM_MODE must be zero or few" >&2
+  exit 2
+fi
+if [[ "$VLM_REPRESENTATION" != "semantic" && "$VLM_REPRESENTATION" != "spatial" ]]; then
+  echo "VLM_REPRESENTATION must be semantic or spatial" >&2
   exit 2
 fi
 if [[ "$VLM_MODE" == "few" && -z "${VLM_SUPPORT:-}" ]]; then
@@ -56,6 +61,7 @@ args=(
   --corpus-root "$PROJECT_DIR/data/cubicasa5k"
   --output "$PROJECT_DIR/outputs/vlm_graph/${VLM_RUN_NAME}.jsonl"
   --mode "$VLM_MODE"
+  --representation "$VLM_REPRESENTATION"
   --limit "$VLM_LIMIT"
 )
 if [[ "$VLM_MODE" == "few" ]]; then

@@ -12,9 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from PIL import Image
-
-from retrieval_app.vlm_graph.prompts import SYSTEM_PROMPT, support_instruction, target_instruction
+from retrieval_app.vlm_graph.prompts import support_instruction, system_prompt, target_instruction
 from retrieval_app.vlm_graph.schema import extract_json, validate_graph
 
 
@@ -27,28 +25,28 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def load_support(path: Path | None, corpus_root: Path) -> list[dict[str, Any]]:
+def load_support(path: Path | None, corpus_root: Path, require_spatial: bool) -> list[dict[str, Any]]:
     if path is None:
         return []
     supports: list[dict[str, Any]] = []
     for item in read_jsonl(path):
         if not isinstance(item.get("graph"), dict):
             raise ValueError("Every few-shot support record needs an inline 'graph' object.")
-        supports.append({"image_path": resolve(str(item["image_path"]), corpus_root), "graph": validate_graph(item["graph"])})
+        supports.append({"image_path": resolve(str(item["image_path"]), corpus_root), "graph": validate_graph(item["graph"], require_spatial=require_spatial)})
     if not supports:
         raise ValueError("Few-shot mode needs at least one support record.")
     return supports
 
 
-def make_messages(supports: list[dict[str, Any]], target: Path) -> list[dict[str, Any]]:
+def make_messages(supports: list[dict[str, Any]], target: Path, spatial: bool) -> list[dict[str, Any]]:
     content: list[dict[str, Any]] = []
     for support in supports:
         content.extend([
             {"type": "image", "image": str(support["image_path"])},
             {"type": "text", "text": support_instruction(json.dumps(support["graph"], separators=(",", ":")))},
         ])
-    content.extend([{"type": "image", "image": str(target)}, {"type": "text", "text": target_instruction()}])
-    return [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": content}]
+    content.extend([{"type": "image", "image": str(target)}, {"type": "text", "text": target_instruction(spatial=spatial)}])
+    return [{"role": "system", "content": system_prompt(spatial=spatial)}, {"role": "user", "content": content}]
 
 
 def main() -> None:
@@ -58,6 +56,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True, help="JSONL experiment output.")
     parser.add_argument("--model", default="Qwen/Qwen3-VL-8B-Instruct")
     parser.add_argument("--mode", choices=("zero", "few"), default="zero")
+    parser.add_argument("--representation", choices=("semantic", "spatial"), default="semantic")
     parser.add_argument("--support-manifest", type=Path, help="JSONL with image_path and verified inline graph objects.")
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--max-new-tokens", type=int, default=1024)
@@ -82,7 +81,8 @@ def main() -> None:
     corpus_root = args.corpus_root.expanduser().resolve()
     manifest = args.manifest.expanduser().resolve()
     output = args.output.expanduser().resolve()
-    supports = load_support(args.support_manifest.expanduser().resolve() if args.support_manifest else None, corpus_root)
+    spatial = args.representation == "spatial"
+    supports = load_support(args.support_manifest.expanduser().resolve() if args.support_manifest else None, corpus_root, require_spatial=spatial)
     if args.mode == "few" and len(supports) > 2:
         raise ValueError("Use at most two support examples so few-shot remains a controlled condition.")
 
@@ -110,7 +110,7 @@ def main() -> None:
             image_path = resolve(str(record["image_path"]), corpus_root)
             if not image_path.exists():
                 raise FileNotFoundError(f"Missing image for {plan_id}: {image_path}")
-            messages = make_messages(supports, image_path)
+            messages = make_messages(supports, image_path, spatial=spatial)
             # qwen-vl-utils loads local image paths and creates correctly ordered vision tensors.
             image_inputs, video_inputs = process_vision_info(messages)
             # Keep chat templating (text) and multimodal tensor construction
@@ -131,6 +131,7 @@ def main() -> None:
                 "plan_id": plan_id,
                 "image_path": record["image_path"],
                 "mode": args.mode,
+                "representation": args.representation,
                 "support_count": len(supports),
                 "model": args.model,
                 "max_pixels": args.max_pixels,
@@ -139,7 +140,7 @@ def main() -> None:
                 "raw_output": raw_output,
             }
             try:
-                result["graph"] = validate_graph(extract_json(raw_output))
+                result["graph"] = validate_graph(extract_json(raw_output), require_spatial=spatial)
                 result["valid"] = True
                 result["error"] = None
             except (ValueError, json.JSONDecodeError) as error:

@@ -3,7 +3,8 @@ from __future__ import annotations
 from retrieval_app.vlm_graph.schema import graph_schema
 
 
-SYSTEM_PROMPT = """You are an architectural floorplan parser.
+def system_prompt(spatial: bool = False) -> str:
+    prompt = """You are an architectural floorplan parser.
 Return exactly one valid JSON object and nothing else. Do not use Markdown.
 
 Identify enclosed rooms from the supplied floorplan image. Use only these room types:
@@ -15,10 +16,22 @@ only when a visible doorway, door swing, or clear passage connects the two rooms
 Do not infer hidden doors. When uncertain, omit the edge rather than guessing.
 Room IDs must be unique and every edge must refer to two declared rooms.
 
-Use this exact JSON shape:\n""" + graph_schema()
+"""
+    if spatial:
+        prompt += """Use a normalised 1000 by 1000 canvas: x increases left-to-right and y increases top-to-bottom.
+For every room, provide an approximate axis-aligned bbox [x0, y0, x1, y1] and centroid [x, y].
+These coordinates must locate the visible room in the input image. Do not output SVG, polygons, or wall coordinates.
+
+"""
+    return prompt + "Use this exact JSON shape:\n" + graph_schema(spatial=spatial)
 
 
-def target_instruction() -> str:
+SYSTEM_PROMPT = system_prompt()
+
+
+def target_instruction(spatial: bool = False) -> str:
+    if spatial:
+        return "Parse the final floorplan image into the required spatial room graph JSON, including normalised room boxes and centroids."
     return "Parse the final floorplan image into the required room graph JSON."
 
 

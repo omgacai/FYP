@@ -13,18 +13,25 @@ ROOM_TYPES = {
 EDGE_TYPES = {"adjacent_to", "connected_by_door"}
 
 
-def graph_schema() -> str:
+def graph_schema(spatial: bool = False) -> str:
     """Compact schema included in every prompt; keep it small for reproducibility."""
-    return json.dumps(
-        {
-            "rooms": [{"id": "bedroom_1", "type": "bedroom"}],
-            "edges": [{
-                "source": "bedroom_1", "target": "corridor_1",
-                "type": "connected_by_door", "confidence": 0.86,
+    value: dict[str, Any] = {
+        "rooms": [{"id": "bedroom_1", "type": "bedroom"}],
+        "edges": [{
+            "source": "bedroom_1", "target": "corridor_1",
+            "type": "connected_by_door", "confidence": 0.86,
+        }],
+    }
+    if spatial:
+        value = {
+            "canvas": {"width": 1000, "height": 1000},
+            "rooms": [{
+                "id": "bedroom_1", "type": "bedroom",
+                "bbox": [80, 520, 410, 850], "centroid": [245, 685],
             }],
-        },
-        indent=2,
-    )
+            "edges": value["edges"],
+        }
+    return json.dumps(value, indent=2)
 
 
 def extract_json(text: str) -> dict[str, Any]:
@@ -44,14 +51,21 @@ def extract_json(text: str) -> dict[str, Any]:
     return value
 
 
-def validate_graph(value: dict[str, Any]) -> dict[str, Any]:
+def validate_graph(value: dict[str, Any], require_spatial: bool = False) -> dict[str, Any]:
     """Validate and canonicalise the deliberately small experiment schema."""
     rooms = value.get("rooms")
     edges = value.get("edges")
     if not isinstance(rooms, list) or not isinstance(edges, list):
         raise ValueError("Expected top-level 'rooms' and 'edges' arrays.")
 
-    clean_rooms: list[dict[str, str]] = []
+    canvas: dict[str, int] | None = None
+    if require_spatial:
+        raw_canvas = value.get("canvas")
+        if not isinstance(raw_canvas, dict) or raw_canvas.get("width") != 1000 or raw_canvas.get("height") != 1000:
+            raise ValueError("Spatial graphs require canvas {width: 1000, height: 1000}.")
+        canvas = {"width": 1000, "height": 1000}
+
+    clean_rooms: list[dict[str, Any]] = []
     ids: set[str] = set()
     for room in rooms:
         if not isinstance(room, dict):
@@ -64,7 +78,22 @@ def validate_graph(value: dict[str, Any]) -> dict[str, Any]:
         if room_type not in ROOM_TYPES:
             raise ValueError(f"Unsupported room type {room_type!r} for {room_id}.")
         ids.add(room_id)
-        clean_rooms.append({"id": room_id, "type": room_type})
+        clean_room: dict[str, Any] = {"id": room_id, "type": room_type}
+        if require_spatial:
+            bbox, centroid = room.get("bbox"), room.get("centroid")
+            if not isinstance(bbox, list) or len(bbox) != 4 or not all(isinstance(item, (int, float)) for item in bbox):
+                raise ValueError(f"Spatial room {room_id} needs bbox [x0, y0, x1, y1].")
+            x0, y0, x1, y1 = (float(item) for item in bbox)
+            if not (0 <= x0 < x1 <= 1000 and 0 <= y0 < y1 <= 1000):
+                raise ValueError(f"Spatial room {room_id} has an invalid bbox range.")
+            if not isinstance(centroid, list) or len(centroid) != 2 or not all(isinstance(item, (int, float)) for item in centroid):
+                raise ValueError(f"Spatial room {room_id} needs centroid [x, y].")
+            cx, cy = (float(item) for item in centroid)
+            if not (0 <= cx <= 1000 and 0 <= cy <= 1000):
+                raise ValueError(f"Spatial room {room_id} has an invalid centroid range.")
+            clean_room["bbox"] = [x0, y0, x1, y1]
+            clean_room["centroid"] = [cx, cy]
+        clean_rooms.append(clean_room)
 
     clean_edges: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
@@ -85,7 +114,10 @@ def validate_graph(value: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("Edge confidence must be a number in [0, 1].")
         clean_edges.append({"source": source, "target": target, "type": relation, "confidence": float(confidence)})
 
-    return {"rooms": clean_rooms, "edges": clean_edges}
+    result: dict[str, Any] = {"rooms": clean_rooms, "edges": clean_edges}
+    if canvas is not None:
+        result["canvas"] = canvas
+    return result
 
 
 def room_counts(graph: dict[str, Any]) -> dict[str, int]:

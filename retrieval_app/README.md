@@ -197,6 +197,23 @@ This reports valid JSON rate, room-count error, and typed edge precision/recall/
 Because CubiGraph labels are rule-derived, call these **silver-label metrics** until
 you manually verify a held-out subset.
 
+## Experiment 2: zero-shot spatial room graph
+
+Experiment 1 asks Qwen for room types and typed edges only. Experiment 2 uses the
+same `Qwen/Qwen3-VL-8B-Instruct` model and deterministic decoding, but requires a
+normalised 1000×1000 canvas, approximate room bounding boxes, and centroids. This
+makes a visual overlay possible; it is **not** a claim of precise SVG/vector output.
+
+```bash
+sbatch --nodelist=xgph1 --gres=gpu:a100-80:1 \
+  --export=ALL,VLM_MODE=zero,VLM_REPRESENTATION=spatial,VLM_LIMIT=5,VLM_RUN_NAME=qwen3vl8b_spatial_zero_5 \
+  slurm/qwen3vl_graph.sbatch
+```
+
+Use the same evaluator for room and relation agreement. Spatial-box accuracy needs
+manual visual review or an explicitly designed SVG-derived geometry metric; do not
+interpret the CubiGraph edge score as a coordinate-accuracy score.
+
 ## Build a manual Qwen-versus-CubiGraph review page
 
 Generate a five-plan review bundle before treating either system as ground truth.
@@ -212,6 +229,10 @@ python -m retrieval_app.scripts.build_vlm_review \
   --output-dir ~/vlm/outputs/vlm_graph/review_zero_5 \
   --limit 5
 ```
+
+For Experiment 2, point `--predictions` at `qwen3vl8b_spatial_zero_5.jsonl`.
+The review bundle adds a fourth panel: Qwen's predicted boxes/centroids and graph
+edges overlaid directly on the original floorplan image.
 
 To inspect locally, download the generated review directory or serve it through a
 cluster Jupyter/HTTP tunnel. The bundle copies only the five selected images and
