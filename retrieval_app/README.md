@@ -196,3 +196,23 @@ python -m retrieval_app.scripts.evaluate_vlm_graph \
 This reports valid JSON rate, room-count error, and typed edge precision/recall/F1.
 Because CubiGraph labels are rule-derived, call these **silver-label metrics** until
 you manually verify a held-out subset.
+
+## Build a manual Qwen-versus-CubiGraph review page
+
+Generate a five-plan review bundle before treating either system as ground truth.
+It displays the source floorplan, CubiGraph relation SVG, Qwen graph JSON, and raw
+model answer side-by-side. It also creates a separate `review_notes.jsonl` template
+for your manual gold decisions.
+
+```bash
+python -m retrieval_app.scripts.build_vlm_review \
+  --predictions ~/vlm/outputs/vlm_graph/qwen3vl8b_zero_20.jsonl \
+  --manifest ~/vlm/data/cubicasa5k/manifests/cubicasa_cubigraph_v1_20.jsonl \
+  --corpus-root ~/vlm/data/cubicasa5k \
+  --output-dir ~/vlm/outputs/vlm_graph/review_zero_5 \
+  --limit 5
+```
+
+To inspect locally, download the generated review directory or serve it through a
+cluster Jupyter/HTTP tunnel. The bundle copies only the five selected images and
+relation SVGs, so it is small and portable.
