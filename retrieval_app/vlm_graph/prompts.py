@@ -9,7 +9,7 @@ Return exactly one valid JSON object and nothing else. Do not use Markdown.
 
 Identify enclosed rooms from the supplied floorplan image. Use only these room types:
 bedroom, bathroom, kitchen, living_room, dining_room, corridor, storage, balcony,
-entrance, other.
+entrance, garage, outdoor, other.
 
 Use adjacent_to only when two rooms visibly share a boundary. Use connected_by_door
 only when a visible doorway, door swing, or clear passage connects the two rooms.

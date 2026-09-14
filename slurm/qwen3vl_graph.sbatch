@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Direct Qwen floorplan-image-to-graph experiment. Submit from ~/vlm/code/FYP.
-# Override VLM_MODE, VLM_REPRESENTATION, VLM_SUPPORT, VLM_LIMIT, VLM_RUN_NAME with sbatch --export.
+# Override VLM_MANIFEST, VLM_MODE, VLM_REPRESENTATION, VLM_SUPPORT, VLM_LIMIT,
+# VLM_RUN_NAME, VLM_SHARD_INDEX, and VLM_NUM_SHARDS with sbatch --export.
 #SBATCH --job-name=qwen3vl-graph
 #SBATCH --partition=gpu
 #SBATCH --nodelist=xgph0
@@ -21,6 +22,9 @@ VLM_MODE="${VLM_MODE:-zero}"
 VLM_REPRESENTATION="${VLM_REPRESENTATION:-semantic}"
 VLM_LIMIT="${VLM_LIMIT:-20}"
 VLM_RUN_NAME="${VLM_RUN_NAME:-qwen3vl8b_${VLM_MODE}_${VLM_LIMIT}}"
+VLM_MANIFEST="${VLM_MANIFEST:-$PROJECT_DIR/data/cubicasa5k/manifests/cubicasa_cubigraph_v1_20.jsonl}"
+VLM_SHARD_INDEX="${VLM_SHARD_INDEX:-0}"
+VLM_NUM_SHARDS="${VLM_NUM_SHARDS:-1}"
 
 if [[ "$VLM_MODE" != "zero" && "$VLM_MODE" != "few" ]]; then
   echo "VLM_MODE must be zero or few" >&2
@@ -32,6 +36,10 @@ if [[ "$VLM_REPRESENTATION" != "semantic" && "$VLM_REPRESENTATION" != "spatial" 
 fi
 if [[ "$VLM_MODE" == "few" && -z "${VLM_SUPPORT:-}" ]]; then
   echo "Few-shot mode requires VLM_SUPPORT=/absolute/path/to/support.jsonl" >&2
+  exit 2
+fi
+if [[ ! -f "$VLM_MANIFEST" ]]; then
+  echo "Missing VLM_MANIFEST: $VLM_MANIFEST" >&2
   exit 2
 fi
 
@@ -57,12 +65,14 @@ print("GPU:", torch.cuda.get_device_name(0))
 PY
 
 args=(
-  --manifest "$PROJECT_DIR/data/cubicasa5k/manifests/cubicasa_cubigraph_v1_20.jsonl"
+  --manifest "$VLM_MANIFEST"
   --corpus-root "$PROJECT_DIR/data/cubicasa5k"
   --output "$PROJECT_DIR/outputs/vlm_graph/${VLM_RUN_NAME}.jsonl"
   --mode "$VLM_MODE"
   --representation "$VLM_REPRESENTATION"
   --limit "$VLM_LIMIT"
+  --shard-index "$VLM_SHARD_INDEX"
+  --num-shards "$VLM_NUM_SHARDS"
 )
 if [[ "$VLM_MODE" == "few" ]]; then
   args+=(--support-manifest "$VLM_SUPPORT")
@@ -71,6 +81,6 @@ fi
 python -m retrieval_app.scripts.run_qwen_graph "${args[@]}"
 python -m retrieval_app.scripts.evaluate_vlm_graph \
   --predictions "$PROJECT_DIR/outputs/vlm_graph/${VLM_RUN_NAME}.jsonl" \
-  --manifest "$PROJECT_DIR/data/cubicasa5k/manifests/cubicasa_cubigraph_v1_20.jsonl" \
+  --manifest "$VLM_MANIFEST" \
   --corpus-root "$PROJECT_DIR/data/cubicasa5k" \
   --output "$PROJECT_DIR/outputs/vlm_graph/${VLM_RUN_NAME}_silver_metrics.json"

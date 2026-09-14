@@ -4,7 +4,7 @@ Run from the FYP directory:
 
 ```bash
 cd ~/Downloads/FYP
-python3 -m pip install -r requirements_macos.txt
+python3 -m pip install -r requirements.txt
 python3 -m streamlit run floorplan_app/app.py
 ```
 

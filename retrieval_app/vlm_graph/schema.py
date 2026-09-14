@@ -8,7 +8,7 @@ from typing import Any
 
 ROOM_TYPES = {
     "bedroom", "bathroom", "kitchen", "living_room", "dining_room",
-    "corridor", "storage", "balcony", "entrance", "other",
+    "corridor", "storage", "balcony", "entrance", "garage", "outdoor", "other",
 }
 EDGE_TYPES = {"adjacent_to", "connected_by_door"}
 

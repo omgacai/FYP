@@ -59,6 +59,8 @@ def main() -> None:
     parser.add_argument("--representation", choices=("semantic", "spatial"), default="semantic")
     parser.add_argument("--support-manifest", type=Path, help="JSONL with image_path and verified inline graph objects.")
     parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument("--shard-index", type=int, default=0, help="Zero-based shard number for resumable corpus jobs.")
+    parser.add_argument("--num-shards", type=int, default=1, help="Number of deterministic manifest shards.")
     parser.add_argument("--max-new-tokens", type=int, default=1024)
     parser.add_argument("--max-pixels", type=int, default=1024 * 1024, help="Bound vision tokens; use same value across conditions.")
     parser.add_argument("--overwrite", action="store_true")
@@ -68,6 +70,8 @@ def main() -> None:
         parser.error("--support-manifest is required in few-shot mode.")
     if args.mode == "zero" and args.support_manifest is not None:
         parser.error("Do not pass --support-manifest in zero-shot mode.")
+    if args.num_shards < 1 or not 0 <= args.shard_index < args.num_shards:
+        parser.error("--shard-index must be in [0, --num-shards).")
 
     # Must be configured before Transformers/Hugging Face import.
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -101,6 +105,7 @@ def main() -> None:
     rows = read_jsonl(manifest)
     if args.limit:
         rows = rows[: args.limit]
+    rows = [row for index, row in enumerate(rows) if index % args.num_shards == args.shard_index]
     with output.open("a", encoding="utf-8") as handle:
         for index, record in enumerate(rows, start=1):
             plan_id = str(record["plan_id"])
@@ -136,6 +141,8 @@ def main() -> None:
                 "model": args.model,
                 "max_pixels": args.max_pixels,
                 "max_new_tokens": args.max_new_tokens,
+                "shard_index": args.shard_index,
+                "num_shards": args.num_shards,
                 "decoded_at": datetime.now(timezone.utc).isoformat(),
                 "raw_output": raw_output,
             }
