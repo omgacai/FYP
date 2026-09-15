@@ -48,9 +48,9 @@ The EGTR adapter emits two directed triplets for each edge, `A -> B` and `B -> A
 
 ### Volunteer edge-review sequence
 
-Do not ask novice reviewers to reconstruct the full graph from a dense overlay. First present every CubiGraph silver edge individually, with only its two rooms and one labelled link highlighted. For each suggestion, the reviewer selects exactly one outcome: accept the suggested predicate, change it to one of the other two predicates, or remove the relation. Store that decision as additive review evidence against the source edge.
+Do not ask novice reviewers to reconstruct the full graph from a dense overlay. Review it room by room in a fixed order. For room *i*, present its pair with every later room *j > i*, one pair at a time, then move automatically to the next source room. Pairs with earlier rooms are already complete. This covers every unordered pair exactly once, including pairs CubiGraph did not predict, while never requiring a reviewer to hold a dense graph in their head.
 
-Only after every silver suggestion has an outcome should the interface unlock **Add missing links**. In that mode, the reviewer selects two labelled room nodes and chooses one predicate. The interface replaces any prior relation on that unordered pair rather than creating a duplicate. A collapsed accepted-edge list and optional full-graph display are context aids, not the default review surface.
+For each pair, highlight only those two rooms and show the CubiGraph relation as a suggestion when one exists. The reviewer selects exactly one outcome: `connected_by_door`, `open_connected`, `adjacent_to`, or **no direct relation**. Store the decision as additive review evidence. The interface replaces any prior relation on that unordered pair rather than creating a duplicate. An optional full-graph display and a collapsed accepted-link list are context aids, not the default review surface.
 
 ## Canonical corpus: source of truth for this project
 
