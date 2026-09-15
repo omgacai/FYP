@@ -18,7 +18,7 @@ TYPE_COLOURS = {
     "living_room": "#ed174c", "dining_room": "#ff7b67", "corridor": "#666666",
     "storage": "#668b1b", "balcony": "#55cc00", "entrance": "#ff5ca8", "other": "#c95b99",
 }
-EDGE_COLOURS = {"adjacent_to": "#2563eb", "connected_by_door": "#c026d3"}
+EDGE_COLOURS = {"adjacent_to": "#2563eb", "connected_by_door": "#c026d3", "open_connected": "#ea580c"}
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:

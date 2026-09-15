@@ -12,7 +12,7 @@ Do not label the entire corpus manually or let a VLM silently become ground trut
 | --- | --- | --- |
 | image | `F1_scaled.png` | source |
 | room polygon, room class, box | `model.svg`, transformed into the image coordinate system | source-derived |
-| `adjacent_to`, `connected_by_door` | CubiGraph extractor with a pinned policy/version | silver |
+| `adjacent_to`, `connected_by_door`, `open_connected` | CubiGraph extractor with a pinned policy/version; open connections are initially absent unless reviewed | silver/reviewed |
 | VLM graph and confidence | immutable model output | prediction |
 | correction and rationale | human reviewer, with reviewer/date | gold-reviewed |
 
@@ -20,12 +20,13 @@ Keep all five layers.  A correction must be an additive record; never mutate or 
 
 ## Relation contract
 
-Use exactly two undirected predicates for version 1:
+Use exactly three mutually exclusive undirected predicates for version 1:
 
-- `adjacent_to`: rooms share a meaningful boundary but there is no detected intervening door.
-- `connected_by_door`: a door connects the two rooms.
+- `connected_by_door`: a real, directly traversable door connects the two rooms.
+- `open_connected`: two distinct semantic zones flow directly into one another with no wall/door barrier.
+- `adjacent_to`: rooms share a meaningful boundary, but there is neither a direct door nor an open connection.
 
-Do not infer `connected_by_door` merely from touching polygons or a close bounding box.  EGTR normally represents relations as directed subject-predicate-object triplets, so export each undirected edge twice with the same predicate (`A → B` and `B → A`), and deduplicate at evaluation.
+Each unordered room pair has zero or one relation only. Review door links first, open-plan links second, and adjacency third. Setting a predicate replaces any previous predicate for that pair; duplicates are invalid. Do not infer `connected_by_door` merely from touching polygons or a close bounding box.  EGTR normally represents relations as directed subject-predicate-object triplets, so export each undirected edge twice with the same predicate (`A → B` and `B → A`), and deduplicate at evaluation.
 
 Initial room classes should retain the CubiCasa semantic types, including `Outdoor`, `Garage`, and `Other`; only merge classes after checking their frequency and visual consistency in the frozen audit set.  Do not invent `dining_room` unless the SVG annotation exposes it.
 
@@ -36,7 +37,7 @@ Initial room classes should retain the CubiCasa semantic types, including `Outdo
 3. Derive rooms, boxes, and the door-first CubiGraph edges from the SVG.  Stamp extractor version, parser backend, and relation policy on every record.  Exclude or explicitly flag CubiGraph's published invalid-geometry and multi-storey lists rather than hiding failures.
 4. Freeze a stratified 100-plan audit subset before any model training: 50 clean/simple plans, 30 dense plans, 20 difficult/ambiguous or multi-storey cases.  Sample from each visual subset and relation-density band.
 5. Review that subset independently.  The reviewer sees the image, SVG/room overlay, silver graph, and VLM prediction; record only corrections with a reason.  Double-review at least 30 plans and resolve disagreements into a written relation policy.
-6. Quantify silver-label quality on the audited sample: room-class agreement, box IoU, and edge precision/recall/F1 separately for `adjacent_to` and `connected_by_door`.  Only then run VLM disagreement triage over the rest.
+6. Quantify silver-label quality on the audited sample: room-class agreement, box IoU, and edge precision/recall/F1 separately for `adjacent_to`, `connected_by_door`, and `open_connected`.  Only then run VLM disagreement triage over the rest.
 7. Run the VLM only to rank uncertain examples: invalid output, room-count mismatch, an edge absent from silver, a missing silver edge, or low confidence.  Review a fixed high-disagreement sample; do not auto-apply changes.
 8. Export the exact annotation format required by the pinned EGTR commit.  First train/evaluate using SVG-derived boxes to isolate relation learning; later train/evaluate full image-only scene-graph detection with predicted boxes.
 
@@ -61,7 +62,7 @@ The EGTR adapter can derive directed triplets from `silver_edges`/reviewed edges
 ## Definition of done for the labeling milestone
 
 - All included records have valid image, SVG, classes, boxes, edge endpoints, and split.
-- Every edge has one of the two documented predicates and connects declared rooms.
+- Every unordered room pair has at most one edge, every edge has one of the three documented predicates, and every endpoint is declared.
 - The audit set is frozen, double-review agreement is reported, and corrected labels have a rationale.
 - The exported EGTR dataset can be loaded by a smoke-test dataloader without changing counts or edge endpoints.
 - Results state whether they evaluate source-box relations or full image-only graph prediction.

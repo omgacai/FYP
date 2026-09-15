@@ -1,0 +1,175 @@
+.overlay-toggle {
+  background: #172554;
+  color: #fff;
+  padding: 7px 10px;
+}
+
+.edit-handles > rect:first-child {
+  fill: none;
+  stroke: #f8fafc;
+  stroke-width: 3;
+  stroke-dasharray: 9 6;
+  pointer-events: none;
+}
+
+.edit-handles > rect:not(:first-child) {
+  fill: #fff;
+  stroke: #172554;
+  stroke-width: 3;
+  cursor: ew-resize;
+}
+
+.edit-handles > circle {
+  fill: #fff;
+  stroke: #172554;
+  stroke-width: 3;
+  cursor: grab;
+}
+
+.edit-handles > circle:active,
+.edit-handles > rect:active { cursor: grabbing; }
+
+.overlay .muted-room polygon {
+  fill: #94a3b820 !important;
+  stroke: #94a3b8 !important;
+  opacity: 0.42;
+}
+
+.overlay .muted-room text { opacity: 0.35; }
+
+/* In the guided room pass, choose another room from the sidebar. This leaves
+   every pointer event for the active room's outline, handles, and fill. */
+.overlay .muted-room { pointer-events: none; }
+
+/* Completed rooms remain visible evidence, but are canvas-locked until the
+   reviewer deliberately reopens one with its sidebar Edit button. */
+.overlay .confirmed polygon {
+  fill: #22c55e35 !important;
+  stroke: #16a34a !important;
+  opacity: 0.78;
+}
+
+.overlay .confirmed text { opacity: 0.8; }
+.overlay .selected.confirmed polygon { opacity: 1; }
+
+.room-entry { position: relative; }
+.room-entry .room-card { width: 100%; padding-right: 118px; }
+.room-card-actions {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  gap: 5px;
+}
+.room-card-actions button {
+  display: block;
+  padding: 5px 7px;
+}
+.room-card-actions .delete-inline { background: #fee2e2; color: #b91c1c; }
+.room-card-actions .confirm-inline { background: #dcfce7; color: #15803d; font-size: 16px; font-weight: 900; }
+.room-entry .edit-confirmed {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+/* Green is completed. Red is the one currently under review/edit. */
+.overlay .selected polygon {
+  fill: #ef444440 !important;
+  stroke: #dc2626 !important;
+  opacity: 1 !important;
+}
+.overlay .selected .edit-handles > rect:not(:first-child),
+.overlay .selected .edit-handles > circle {
+  stroke: #dc2626;
+}
+
+.overlay.graph-mode .confirmed polygon { opacity: 0.82; }
+.overlay.graph-mode .graph-focus polygon { stroke: #f59e0b !important; stroke-width: 9 !important; fill: #fbbf2440 !important; }
+.graph-node { cursor: pointer; }
+.graph-node circle { stroke: #fff; stroke-width: 4; }
+.graph-node rect { stroke-width: 3; }
+.graph-node text { fill: #172554; stroke: none; font-size: 14px; font-weight: 800; text-anchor: start; }
+.graph-node.selected circle { stroke: #f59e0b; stroke-width: 7; }
+.graph-node.selected rect { fill: #fff7ed; stroke: #f59e0b; stroke-width: 4; }
+.node-edge-action { margin: 14px 0; padding: 11px; border: 1px dashed #cbd5e1; border-radius: 9px; color: #64748b; font-size: 13px; }
+.node-edge-action.ready { border-color: #f59e0b; background: #fff7ed; color: #9a3412; }
+.node-edge-action p { margin: 0 0 8px; font-weight: 700; }
+.node-edge-action select, .node-edge-action button { width: 100%; margin-top: 6px; }
+.node-edge-action button { background: #ea580c; color: #fff; }
+.node-edge-action .clear-node-selection { background: #e2e8f0; color: #334155; }
+
+/* A novice reviewer verifies one silver suggestion at a time, before being
+   offered the more open-ended task of adding missing links. */
+.edge-stages { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin: 12px 0; }
+.edge-stages button { text-align: left; display: grid; gap: 3px; background: #f8fafc; color: #64748b; padding: 9px; }
+.edge-stages button.active { outline: 2px solid #ea580c; background: #fff7ed; color: #9a3412; }
+.edge-stages button:disabled { opacity: .55; cursor: not-allowed; }
+.edge-stages small { font-size: 11px; font-weight: 600; }
+.candidate-review { border: 1px solid #fed7aa; background: #fffaf3; padding: 14px; border-radius: 10px; }
+.candidate-review h3 { margin: 6px 0 8px; font-size: 16px; }
+.candidate-review h3 span { color: #ea580c; }
+.candidate-review p { margin: 8px 0; font-size: 13px; line-height: 1.4; color: #475569; }
+.candidate-review .accept-suggestion { width: 100%; background: #16a34a; color: #fff; margin-top: 4px; }
+.candidate-review .reject-suggestion { width: 100%; background: #fee2e2; color: #b91c1c; margin-top: 8px; }
+.candidate-review.complete { border-color: #86efac; background: #f0fdf4; }
+.candidate-review.complete button { width: 100%; background: #16a34a; color: #fff; }
+.change-label { font-weight: 700; color: #64748b !important; }
+.relation-choices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.relation-choices button { background: #e0f2fe; color: #075985; padding: 8px 5px; font-size: 11px; }
+.accepted-links { margin: 14px 0; color: #334155; }
+.accepted-links summary { cursor: pointer; font-weight: 700; font-size: 13px; }
+.accepted-links .edges { margin-top: 9px; }
+
+/* Three mutually-exclusive topology labels: access through a door, access via
+   an open plan, or adjacency without direct access. */
+.legend .dashed { border-color: #2563eb; border-top-style: dashed; }
+.legend .door-key { border-color: #c026d3; border-top-style: solid; }
+.legend .open-key { border-color: #ea580c; border-top-style: solid; }
+.overlay .open { stroke: #ea580c; stroke-width: 6; stroke-dasharray: 14 5 3 5; }
+.graph-edge path { fill: none; stroke-width: 6; pointer-events: none; }
+.graph-edge rect { fill: #fff; stroke: #cbd5e1; stroke-width: 2; pointer-events: none; }
+.graph-edge text { fill: #172554; stroke: none; font-size: 12px; font-weight: 800; text-anchor: middle; pointer-events: none; }
+.relation-view-toggle { background: #e0f2fe; color: #075985; white-space: nowrap; padding: 6px 9px; }
+.edge-passes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 12px 0 8px; }
+.edge-passes button { background: #f8fafc; color: #475569; padding: 8px 6px; text-align: left; display: grid; gap: 2px; font-size: 11px; }
+.edge-passes button strong { font-size: 11px; }
+.edge-passes button small { color: #64748b; font-weight: 500; }
+.edge-passes button.active { background: #fff7ed; outline: 2px solid #ea580c; color: #9a3412; }
+.edge-passes button.active small { color: #c2410c; }
+.pass-help { font-size: 12px; color: #475569; margin: 8px 0 12px; line-height: 1.35; }
+.node-edge-action small { display: block; line-height: 1.35; }
+.edges .edge-card { grid-template-columns: 1fr auto auto; }
+.edges .edge-card small { grid-column: 1; }
+.edges .edge-card .locate-edge { grid-column: 2; grid-row: 1 / 3; background: #e0f2fe; color: #075985; }
+.edges .edge-card button:last-child { grid-column: 3; grid-row: 1 / 3; }
+.no-edges { margin: 8px 0; color: #64748b; font-size: 12px; line-height: 1.4; }
+
+.zoom-controls { display: flex; align-items: center; gap: 5px; margin-left: auto; }
+.zoom-controls button { min-width: 29px; padding: 5px 8px; background: #e2e8f0; color: #172554; }
+.zoom-controls label { display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.zoom-controls input { width: 92px; padding: 0; }
+.canvas-panel .plan { margin: 0 auto; }
+
+/* Sidebar colours mirror annotation state, not arbitrary instance colours. */
+.room-list .room-card.done {
+  background: #f0fdf4;
+  outline: 1px solid #86efac;
+}
+.room-list .room-card.done i { background: #16a34a !important; }
+.room-list .room-card.active {
+  background: #fef2f2;
+  outline: 2px solid #dc2626;
+}
+.room-list .room-card.active i { background: #dc2626 !important; }
+.room-list .room-card.active small { color: #b91c1c; }
+.room-list .room-card:not(.done):not(.active) i { background: #94a3b8 !important; }
+
+.overlay .selected polygon { cursor: move; touch-action: none; }
+
+.room-actions, .redraw-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 12px; }
+.room-actions button, .redraw-controls button, .redraw { background: #e2e8f0; color: #1e293b; }
+.room-actions .delete-room, .redraw-controls button:last-child { background: #fee2e2; color: #b91c1c; }
+.redraw { width: 100%; margin: 12px 0; }
+.draft-room polyline { fill: #fbbf2430; stroke: #f59e0b; stroke-width: 6; stroke-dasharray: 10 7; }
+.draft-room circle { fill: #fff; stroke: #f59e0b; stroke-width: 4; }

@@ -24,7 +24,7 @@ CATEGORIES = [
     "LivingRoom", "Bedroom", "Kitchen", "Dining", "Bath", "Storage",
     "Entry", "Garage", "Other", "Outdoor",
 ]
-RELATIONS = {1: "adjacent_to", 2: "connected_by_door"}
+RELATIONS = {1: "adjacent_to", 2: "connected_by_door", 3: "open_connected"}
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -170,7 +170,7 @@ def main() -> None:
     args.output.write_text("".join(json.dumps(row) + "\n" for row in output_rows), encoding="utf-8")
     label_map = {
         "object_categories": [{"id": index + 1, "name": name} for index, name in enumerate(CATEGORIES)],
-        "predicate_categories": [{"id": 1, "name": "adjacent_to"}, {"id": 2, "name": "connected_by_door"}],
+        "predicate_categories": [{"id": 1, "name": "adjacent_to"}, {"id": 2, "name": "connected_by_door"}, {"id": 3, "name": "open_connected"}],
     }
     args.output.with_name("label_map.json").write_text(json.dumps(label_map, indent=2) + "\n", encoding="utf-8")
     if args.errors:

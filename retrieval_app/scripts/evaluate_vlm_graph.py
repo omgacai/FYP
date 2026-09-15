@@ -14,7 +14,7 @@ from typing import Any
 from retrieval_app.data.manifest import load_adjacency
 from retrieval_app.representations.normalise import room_type
 
-RELATIONS = {1: "adjacent_to", 2: "connected_by_door"}
+RELATIONS = {1: "adjacent_to", 2: "connected_by_door", 3: "open_connected"}
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:

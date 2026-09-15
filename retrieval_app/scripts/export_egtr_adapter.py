@@ -42,14 +42,19 @@ def main() -> None:
             })
             annotation_id += 1
         triples: list[list[int]] = []
+        seen_pairs: set[tuple[str, str]] = set()
         for edge in row["silver_edges"]:
+            pair = tuple(sorted((str(edge["room_a"]), str(edge["room_b"]))))
+            if pair in seen_pairs:
+                raise ValueError(f"{row['plan_id']} has duplicate/conflicting relations for room pair {pair}")
+            seen_pairs.add(pair)
             source, target, predicate = room_index[edge["room_a"]], room_index[edge["room_b"]], int(edge["predicate_id"])
             triples.extend([[source, target, predicate], [target, source, predicate]])
         relations[split][str(image_id)] = triples
     for split, payload in coco.items():
         payload["categories"] = [{"id": identifier, "name": categories[identifier]} for identifier in sorted(categories)]
         (output / f"{split}.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    rel_payload: dict[str, Any] = {"rel_categories": ["no_relation", "adjacent_to", "connected_by_door"], **relations}
+    rel_payload: dict[str, Any] = {"rel_categories": ["no_relation", "adjacent_to", "connected_by_door", "open_connected"], **relations}
     (output / "rel.json").write_text(json.dumps(rel_payload, indent=2) + "\n", encoding="utf-8")
     (output / "label_map.json").write_text(json.dumps({"categories": categories, "rel_categories": rel_payload["rel_categories"]}, indent=2) + "\n", encoding="utf-8")
     if args.image_root:

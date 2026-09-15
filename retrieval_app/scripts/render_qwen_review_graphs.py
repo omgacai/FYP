@@ -15,7 +15,7 @@ TYPE_COLOURS = {
     "living_room": "#e6c5f2", "dining_room": "#f5d0ca", "corridor": "#d9dde3",
     "storage": "#e6e7a7", "balcony": "#bbdfaa", "entrance": "#f4b8c5", "other": "#dddddd",
 }
-EDGE_COLOURS = {"adjacent_to": "#2563eb", "connected_by_door": "#c026d3"}
+EDGE_COLOURS = {"adjacent_to": "#2563eb", "connected_by_door": "#c026d3", "open_connected": "#ea580c"}
 
 
 def svg_graph(graph: dict[str, Any]) -> str:
@@ -93,7 +93,7 @@ def main() -> None:
             plan_id = plan_match.group(1)
             filename = f"{plan_id}_qwen_graph.svg"
             (assets / filename).write_text(svg_graph(graph), encoding="utf-8")
-            graph_html = f'<img src="assets/{html.escape(filename)}" alt="Qwen node-edge graph" /><p class="legend"><span class="adjacent">Blue</span>: adjacent_to &nbsp; <span class="door">Magenta</span>: connected_by_door</p>'
+            graph_html = f'<img src="assets/{html.escape(filename)}" alt="Qwen node-edge graph" /><p class="legend"><span class="adjacent">Blue</span>: adjacent_to &nbsp; <span class="door">Magenta</span>: connected_by_door &nbsp; <span class="open">Orange</span>: open_connected</p>'
         new_panel = prediction_match.group(0) + f'<section class="panel"><h2>Rendered Qwen node-edge graph</h2>{graph_html}</section>'
         changed += 1
         return "<article>" + article[:prediction_match.start()] + new_panel + article[prediction_match.end():] + "</article>"
@@ -101,7 +101,7 @@ def main() -> None:
     source = article_pattern.sub(transform, source)
     source = source.replace(
         "pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 520px; overflow: auto; font-size: .78rem; }",
-        "pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 520px; overflow: auto; font-size: .78rem; } .legend { font-size: .8rem; } .adjacent { color: #2563eb; font-weight: 700; } .door { color: #c026d3; font-weight: 700; }",
+        "pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 520px; overflow: auto; font-size: .78rem; } .legend { font-size: .8rem; } .adjacent { color: #2563eb; font-weight: 700; } .door { color: #c026d3; font-weight: 700; } .open { color: #ea580c; font-weight: 700; }",
     )
     index.write_text(source, encoding="utf-8")
     print(f"Added rendered Qwen graph panels for {changed} review records: {index}")

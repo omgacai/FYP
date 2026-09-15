@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from copy import deepcopy
 from pathlib import Path
 
@@ -9,6 +10,13 @@ import pandas as pd
 import streamlit as st
 from PIL import Image
 from streamlit_drawable_canvas import st_canvas
+
+# ``streamlit run review_app/app.py`` puts review_app first on sys.path.
+# Add the repository root so the shared conversion utility is importable.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from retrieval_app.scripts.svg_relation_to_review_packet import convert
 
 
 ROOM_TYPES = ["LivingRoom", "Bedroom", "Kitchen", "Dining", "Bath", "Storage", "Entry", "Garage", "Other", "Outdoor"]
@@ -44,10 +52,11 @@ def boxes_from_canvas(rooms: list[dict], canvas: dict | None, image_size: tuple[
         return updated
     scale = min(1.0, display_width / image_size[0])
     by_id = {str(item.get("room_id")): item for item in canvas["objects"] if item.get("room_id")}
+    rectangles = [item for item in canvas["objects"] if item.get("type") == "rect"]
     for position, room in enumerate(updated):
         item = by_id.get(room["room_id"])
-        if item is None and position < len(canvas["objects"]):
-            item = canvas["objects"][position]
+        if item is None and position < len(rectangles):
+            item = rectangles[position]
         if item is None:
             continue
         x0, y0 = float(item.get("left", 0)) / scale, float(item.get("top", 0)) / scale
@@ -78,17 +87,27 @@ st.title("CubiCasa room-graph reviewer")
 st.caption("Edits create an additive review patch. They never overwrite the source SVG or CubiGraph silver graph.")
 
 with st.sidebar:
-    manifest_upload = st.file_uploader("Canonical JSONL review packet", type="jsonl")
+    input_mode = st.radio("Annotation input", ["Canonical JSONL", "CubiGraph relation SVG"])
+    manifest_upload = st.file_uploader("Canonical JSONL review packet", type="jsonl") if input_mode == "Canonical JSONL" else None
+    svg_upload = st.file_uploader("CubiGraph relation SVG", type="svg") if input_mode == "CubiGraph relation SVG" else None
     image_upload = st.file_uploader("Floor-plan image for selected plan", type=["png", "jpg", "jpeg"])
     reviewer = st.text_input("Reviewer ID", value="")
 
-if not manifest_upload or not image_upload:
-    st.info("Upload a small canonical JSONL packet and the selected plan image.")
+if not image_upload or (input_mode == "Canonical JSONL" and not manifest_upload) or (input_mode == "CubiGraph relation SVG" and not svg_upload):
+    st.info("Upload either a canonical JSONL packet or CubiGraph relation SVG, plus the matching plan image.")
     st.stop()
-records = read_records(manifest_upload)
-selected_id = st.selectbox("Plan", [record["plan_id"] for record in records])
-record = next(record for record in records if record["plan_id"] == selected_id)
 image = Image.open(image_upload).convert("RGB")
+if input_mode == "Canonical JSONL":
+    records = read_records(manifest_upload)
+    selected_id = st.selectbox("Plan", [record["plan_id"] for record in records])
+    record = next(record for record in records if record["plan_id"] == selected_id)
+else:
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".svg") as svg_file, tempfile.NamedTemporaryFile(suffix=".png") as image_file:
+        svg_file.write(svg_upload.getvalue()); svg_file.flush()
+        image.save(image_file.name, format="PNG")
+        record = convert(Path(svg_file.name), Path(image_file.name), Path(svg_upload.name).stem.replace("_cubigraph_relations", ""))
+    selected_id = record["plan_id"]
 if list(image.size) != record["image_size"]:
     st.warning(f"Image is {image.size}; packet says {record['image_size']}. Use the matching image before exporting a review.")
 image_size = image.size
@@ -104,7 +123,7 @@ rooms_key, edges_key = f"rooms:{selected_id}", f"edges:{selected_id}"
 left, right = st.columns([3, 2])
 with left:
     st.subheader("Drag or resize room boxes")
-    canvas = st_canvas(fill_color="rgba(0,0,0,0)", stroke_width=3, background_image=image, initial_drawing=canvas_json(st.session_state[rooms_key], st.session_state[edges_key], image_size, display_width), drawing_mode="transform", width=display_width, height=round(image.height * min(1.0, display_width / image.width)), key=f"canvas:{selected_id}")
+    canvas = st_canvas(fill_color="rgba(0,0,0,0)", stroke_width=3, background_image=image, initial_drawing=canvas_json(st.session_state[rooms_key], st.session_state[edges_key], image_size, display_width), width=display_width, height=round(image.height * min(1.0, display_width / image.width)), key=f"canvas:{selected_id}")
     if st.button("Apply box positions from canvas"):
         st.session_state[rooms_key] = boxes_from_canvas(st.session_state[rooms_key], canvas.json_data, image_size, display_width)
         st.rerun()

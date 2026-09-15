@@ -32,16 +32,25 @@ The EGTR category map is not the same as the current small Qwen prompt schema.  
 
 ### Edges
 
-There are exactly two v1 predicates:
+There are exactly three mutually exclusive v1 predicates for each unordered room pair:
 
 | Predicate ID | Name | Meaning |
 | --- | --- | --- |
 | 1 | `adjacent_to` | rooms share a meaningful boundary but no shared detected door |
 | 2 | `connected_by_door` | an annotated/detected door joins the room pair |
+| 3 | `open_connected` | distinct semantic room zones have a direct, unobstructed opening with no door |
 
-The canonical corpus stores one undirected edge with lexicographically sorted room IDs.  The EGTR adapter emits two directed triplets for each edge, `A -> B` and `B -> A`, using the same predicate ID.  Evaluation converts predictions back to undirected pairs before comparing with the canonical labels.
+The canonical corpus stores at most one undirected edge per lexicographically sorted room-ID pair. A reviewer must assign exactly one of the three predicates or leave the pair unlabelled (no relation). Review in this order: (1) `connected_by_door`, (2) `open_connected`, (3) `adjacent_to`. `adjacent_to` therefore explicitly means a shared boundary with neither form of direct access. Setting a new predicate for a pair replaces the prior one; duplicates with different predicate IDs are invalid.
 
-`near`, overlapping boxes, or merely touching a buffer are not evidence of access through a door.
+The EGTR adapter emits two directed triplets for each edge, `A -> B` and `B -> A`, using the same predicate ID. Evaluation converts predictions back to undirected pairs before comparing with the canonical labels.
+
+`near`, overlapping boxes, or merely touching a buffer are not evidence of an edge. Do not call an open-plan region `connected_by_door`; it is `open_connected` only when the reviewer can identify two distinct room semantics and a direct unblocked passage.
+
+### Volunteer edge-review sequence
+
+Do not ask novice reviewers to reconstruct the full graph from a dense overlay. First present every CubiGraph silver edge individually, with only its two rooms and one labelled link highlighted. For each suggestion, the reviewer selects exactly one outcome: accept the suggested predicate, change it to one of the other two predicates, or remove the relation. Store that decision as additive review evidence against the source edge.
+
+Only after every silver suggestion has an outcome should the interface unlock **Add missing links**. In that mode, the reviewer selects two labelled room nodes and chooses one predicate. The interface replaces any prior relation on that unordered pair rather than creating a duplicate. A collapsed accepted-edge list and optional full-graph display are context aids, not the default review surface.
 
 ## Canonical corpus: source of truth for this project
 
@@ -118,7 +127,7 @@ COCO uses `bbox = [x, y, width, height]`; the canonical corpus uses `bbox_xyxy`.
 
 ```json
 {
-  "rel_categories": ["no_relation", "adjacent_to", "connected_by_door"],
+  "rel_categories": ["no_relation", "adjacent_to", "connected_by_door", "open_connected"],
   "train": {"0": [[0, 1, 2], [1, 0, 2]]},
   "val": {"100": []},
   "test": {"200": []}
@@ -134,7 +143,7 @@ Before a full run, use 10 plans and verify all of the following:
 1. the patched loader opens every image;
 2. COCO categories become EGTR class labels without an off-by-one shift;
 3. each relation triple indexes the intended two room annotations;
-4. the relation tensor has exactly two predicate channels;
+4. the relation tensor has exactly three predicate channels;
 5. one forward/backward pass completes; and
 6. a rendered overlay agrees with the exported boxes and edge endpoints.
 
@@ -161,6 +170,39 @@ All arms receive the image and the same silver graph; they output a proposed gra
 Review task: accept/reject/change-type each proposed edge; add missing edges; mark `uncertain`; provide a short reason.  Do not ask volunteers to redraw SVG rooms in v1.
 
 Primary outcome: agreement and corrected-edge quality on the double-reviewed audit set.
+
+### Volunteer queue, saving, and hand-off contract
+
+The reviewer UI is a client of a central review service; browser downloads and local
+uploads are only a prototype mode. Source images, SVG-derived rooms, and CubiGraph
+silver edges remain read-only on SOC storage. The service gives the UI a review
+packet and accepts additive review events/snapshots; it never mutates the canonical
+record in place.
+
+Use these states for each `(plan_id, review_round)` task:
+
+`queued -> leased -> in_progress -> submitted -> adjudicated`.
+
+- A reviewer enters a pseudonymous `reviewer_id`; the service assigns a small batch
+  (for example 5–10 plans) and leases each task for 60 minutes.
+- The UI autosaves a draft snapshot after edits (debounced) and sends a heartbeat.
+  A browser close or expired lease leaves the task `in_progress`/`partial`, rather
+  than losing work.
+- The same reviewer may resume their partial task. A different reviewer may take a
+  hand-off only after expiry; record `continued_from_session_id` and both reviewer
+  IDs. Do not silently merge their edits.
+- For the audit set, create two independent tasks (`review_round=1` and `2`) from
+  the same frozen baseline. Reviewers should not see each other's corrections. An
+  adjudicator produces the only `gold_reviewed` patch after disagreement resolution.
+- For ordinary scaling, one submitted review may be used as `human_reviewed` silver
+  supervision, but never as gold unless the predeclared acceptance rule is met.
+
+Minimum persistent entities are: `plans` (immutable source/silver pointer and
+version), `review_tasks` (queue/lease/status), `review_sessions` (reviewer and
+timestamps), and append-only `review_snapshots`/`review_events` (rooms, edges,
+notes, base revision). Use optimistic revision checks so two writers cannot overwrite
+the same task. Store the final export as a review patch linked to the exact baseline
+hash, not as a replacement SVG or graph.
 
 ### B — GPT/Claude disagreement triage
 
