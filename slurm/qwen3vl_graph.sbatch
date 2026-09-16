@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Direct Qwen floorplan-image-to-graph experiment. Submit from ~/vlm/code/FYP.
-# Override VLM_MANIFEST, VLM_MODE, VLM_REPRESENTATION, VLM_SUPPORT, VLM_LIMIT,
-# VLM_RUN_NAME, VLM_SHARD_INDEX, and VLM_NUM_SHARDS with sbatch --export.
+# Override VLM_MANIFEST, VLM_MODE, VLM_REPRESENTATION, VLM_PROMPT_VERSION,
+# VLM_SUPPORT, VLM_LIMIT, VLM_RUN_NAME, VLM_SHARD_INDEX, and VLM_NUM_SHARDS
+# with sbatch --export.
 #SBATCH --job-name=qwen3vl-graph
 #SBATCH --partition=gpu
 #SBATCH --nodelist=xgph0
@@ -20,6 +21,7 @@ CACHE_ROOT="${CACHE_ROOT:-$HOME/aigc-storage/fyp-model-cache}"
 VENV_DIR="${VENV_DIR:-$HOME/aigc-storage/fyp-envs/qwen-a100-cu121}"
 VLM_MODE="${VLM_MODE:-zero}"
 VLM_REPRESENTATION="${VLM_REPRESENTATION:-semantic}"
+VLM_PROMPT_VERSION="${VLM_PROMPT_VERSION:-baseline}"
 VLM_LIMIT="${VLM_LIMIT:-20}"
 VLM_RUN_NAME="${VLM_RUN_NAME:-qwen3vl8b_${VLM_MODE}_${VLM_LIMIT}}"
 VLM_MANIFEST="${VLM_MANIFEST:-$PROJECT_DIR/data/cubicasa5k/manifests/cubicasa_cubigraph_v1_20.jsonl}"
@@ -36,6 +38,10 @@ if [[ "$VLM_REPRESENTATION" != "semantic" && "$VLM_REPRESENTATION" != "spatial" 
 fi
 if [[ "$VLM_MODE" == "few" && -z "${VLM_SUPPORT:-}" ]]; then
   echo "Few-shot mode requires VLM_SUPPORT=/absolute/path/to/support.jsonl" >&2
+  exit 2
+fi
+if [[ "$VLM_PROMPT_VERSION" == "cubicasa_fewshot_v1" && "$VLM_MODE" != "few" ]]; then
+  echo "cubicasa_fewshot_v1 requires VLM_MODE=few and verified VLM_SUPPORT" >&2
   exit 2
 fi
 if [[ ! -f "$VLM_MANIFEST" ]]; then
@@ -70,6 +76,7 @@ args=(
   --output "$PROJECT_DIR/outputs/vlm_graph/${VLM_RUN_NAME}.jsonl"
   --mode "$VLM_MODE"
   --representation "$VLM_REPRESENTATION"
+  --prompt-version "$VLM_PROMPT_VERSION"
   --limit "$VLM_LIMIT"
   --shard-index "$VLM_SHARD_INDEX"
   --num-shards "$VLM_NUM_SHARDS"

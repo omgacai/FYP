@@ -10,7 +10,7 @@ ROOM_TYPES = {
     "bedroom", "bathroom", "kitchen", "living_room", "dining_room",
     "corridor", "storage", "balcony", "entrance", "garage", "outdoor", "other",
 }
-EDGE_TYPES = {"adjacent_to", "connected_by_door"}
+EDGE_TYPES = {"adjacent_to", "connected_by_door", "open_connected"}
 
 
 def graph_schema(spatial: bool = False) -> str:
@@ -96,7 +96,10 @@ def validate_graph(value: dict[str, Any], require_spatial: bool = False) -> dict
         clean_rooms.append(clean_room)
 
     clean_edges: list[dict[str, Any]] = []
-    seen: set[tuple[str, str, str]] = set()
+    # The dataset contract permits at most one topology label for an unordered
+    # room pair.  This rejects the otherwise tempting but contradictory output
+    # of marking the same pair both adjacent and directly connected.
+    seen: set[tuple[str, str]] = set()
     for edge in edges:
         if not isinstance(edge, dict):
             raise ValueError("Every edge must be an object.")
@@ -105,9 +108,9 @@ def validate_graph(value: dict[str, Any], require_spatial: bool = False) -> dict
             raise ValueError(f"Edge must connect two different declared rooms: {edge!r}")
         if relation not in EDGE_TYPES:
             raise ValueError(f"Unsupported edge type: {relation!r}")
-        key = (*sorted((source, target)), relation)
+        key = tuple(sorted((source, target)))
         if key in seen:
-            continue
+            raise ValueError(f"Duplicate or conflicting relation for room pair: {source!r}, {target!r}")
         seen.add(key)
         confidence = edge.get("confidence", 1.0)
         if not isinstance(confidence, (float, int)) or not 0.0 <= confidence <= 1.0:

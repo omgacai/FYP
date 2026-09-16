@@ -38,15 +38,15 @@ def load_support(path: Path | None, corpus_root: Path, require_spatial: bool) ->
     return supports
 
 
-def make_messages(supports: list[dict[str, Any]], target: Path, spatial: bool) -> list[dict[str, Any]]:
+def make_messages(supports: list[dict[str, Any]], target: Path, spatial: bool, prompt_version: str) -> list[dict[str, Any]]:
     content: list[dict[str, Any]] = []
     for support in supports:
         content.extend([
             {"type": "image", "image": str(support["image_path"])},
             {"type": "text", "text": support_instruction(json.dumps(support["graph"], separators=(",", ":")))},
         ])
-    content.extend([{"type": "image", "image": str(target)}, {"type": "text", "text": target_instruction(spatial=spatial)}])
-    return [{"role": "system", "content": system_prompt(spatial=spatial)}, {"role": "user", "content": content}]
+    content.extend([{"type": "image", "image": str(target)}, {"type": "text", "text": target_instruction(spatial=spatial, prompt_version=prompt_version)}])
+    return [{"role": "system", "content": system_prompt(spatial=spatial, prompt_version=prompt_version)}, {"role": "user", "content": content}]
 
 
 def main() -> None:
@@ -57,6 +57,7 @@ def main() -> None:
     parser.add_argument("--model", default="Qwen/Qwen3-VL-8B-Instruct")
     parser.add_argument("--mode", choices=("zero", "few"), default="zero")
     parser.add_argument("--representation", choices=("semantic", "spatial"), default="semantic")
+    parser.add_argument("--prompt-version", choices=("baseline", "cubicasa_fewshot_v1"), default="baseline")
     parser.add_argument("--support-manifest", type=Path, help="JSONL with image_path and verified inline graph objects.")
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--shard-index", type=int, default=0, help="Zero-based shard number for resumable corpus jobs.")
@@ -72,6 +73,8 @@ def main() -> None:
         parser.error("Do not pass --support-manifest in zero-shot mode.")
     if args.num_shards < 1 or not 0 <= args.shard_index < args.num_shards:
         parser.error("--shard-index must be in [0, --num-shards).")
+    if args.prompt_version == "cubicasa_fewshot_v1" and args.mode != "few":
+        parser.error("cubicasa_fewshot_v1 requires --mode few and verified support examples.")
 
     # Must be configured before Transformers/Hugging Face import.
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -115,7 +118,7 @@ def main() -> None:
             image_path = resolve(str(record["image_path"]), corpus_root)
             if not image_path.exists():
                 raise FileNotFoundError(f"Missing image for {plan_id}: {image_path}")
-            messages = make_messages(supports, image_path, spatial=spatial)
+            messages = make_messages(supports, image_path, spatial=spatial, prompt_version=args.prompt_version)
             # qwen-vl-utils loads local image paths and creates correctly ordered vision tensors.
             image_inputs, video_inputs = process_vision_info(messages)
             # Keep chat templating (text) and multimodal tensor construction
@@ -136,6 +139,7 @@ def main() -> None:
                 "plan_id": plan_id,
                 "image_path": record["image_path"],
                 "mode": args.mode,
+                "prompt_version": args.prompt_version,
                 "representation": args.representation,
                 "support_count": len(supports),
                 "model": args.model,

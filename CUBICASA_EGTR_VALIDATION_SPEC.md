@@ -218,6 +218,8 @@ Use the existing SOC Slurm Qwen runner.  Hold a fixed calibration subset separat
 - schema-constrained prompt with explicit door/adjacency definitions;
 - at most one few-shot prompt, using only adjudicated calibration examples.
 
+The few-shot condition uses one or two CubiCasa-style **image + verified spatial graph** examples, not silver graphs. Each support graph must use the same normalised `1000 × 1000` room boxes, the same 12-class VLM-only map, and the same three mutually exclusive edge predicates as the target output. The prompt must state the decision order: visible door, then direct open-plan passage, then shared-boundary adjacency, otherwise no edge. Keep the baseline and few-shot run on the identical frozen manifest, image-resolution bound, decoding parameters, and model checkpoint. `slurm/qwen3vl_prompt_ablation.sbatch` runs that pair of conditions and writes separate raw JSONL predictions and metrics.
+
 Primary outcome: valid-JSON rate, room count/type score, and edge precision/recall/F1 by predicate on the frozen audit set.  Select one prompt using calibration only, then run it once on the audit set.
 
 ### D — CNN segmentor graph extraction
