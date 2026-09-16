@@ -7,7 +7,7 @@
 # sbatch --export=ALL,VLM_SUPPORT=/path/support.jsonl,VLM_LIMIT=20 slurm/qwen3vl_prompt_ablation.sbatch
 #SBATCH --job-name=qwen3vl-prompt-ablation
 #SBATCH --partition=gpu
-#SBATCH --nodelist=xgph0
+# Let Slurm choose any eligible GPU node; specific hosts may move partitions.
 #SBATCH --time=06:00:00
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=48G
