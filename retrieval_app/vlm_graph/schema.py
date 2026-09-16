@@ -5,12 +5,64 @@ import re
 from collections import Counter
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
 
 ROOM_TYPES = {
     "bedroom", "bathroom", "kitchen", "living_room", "dining_room",
     "corridor", "storage", "balcony", "entrance", "garage", "outdoor", "other",
 }
 EDGE_TYPES = {"adjacent_to", "connected_by_door", "open_connected"}
+
+
+class _StrictPayload(BaseModel):
+    """Reject accidental prose keys and unsupported model fields early."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class CanvasPayload(_StrictPayload):
+    width: int
+    height: int
+
+
+class RoomPayload(_StrictPayload):
+    id: str = Field(min_length=1)
+    type: str
+    bbox: list[float] | None = None
+    centroid: list[float] | None = None
+
+
+class EdgePayload(_StrictPayload):
+    source: str = Field(min_length=1)
+    target: str = Field(min_length=1)
+    type: str
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+
+
+class GraphPayload(_StrictPayload):
+    canvas: CanvasPayload | None = None
+    rooms: list[RoomPayload]
+    edges: list[EdgePayload]
+
+
+class TypeUpdatePayload(_StrictPayload):
+    room_id: str = Field(min_length=1)
+    type: str
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+
+
+class EdgeDecisionPayload(_StrictPayload):
+    room_a: str = Field(min_length=1)
+    room_b: str = Field(min_length=1)
+    action: str
+    predicate: str | None = None
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+
+
+class CorrectionPatchPayload(_StrictPayload):
+    room_type_updates: list[TypeUpdatePayload] = Field(default_factory=list)
+    edge_decisions: list[EdgeDecisionPayload] = Field(default_factory=list)
 
 
 def correction_patch_schema() -> str:
@@ -64,6 +116,10 @@ def extract_json(text: str) -> dict[str, Any]:
 
 def validate_graph(value: dict[str, Any], require_spatial: bool = False) -> dict[str, Any]:
     """Validate and canonicalise the deliberately small experiment schema."""
+    # Pydantic gives a precise error for malformed field shapes, extra prose
+    # fields, bad confidence values, and missing top-level arrays before the
+    # graph-specific topology checks below.
+    value = GraphPayload.model_validate(value).model_dump(exclude_none=False)
     rooms = value.get("rooms")
     edges = value.get("edges")
     if not isinstance(rooms, list) or not isinstance(edges, list):
@@ -136,6 +192,7 @@ def validate_graph(value: dict[str, Any], require_spatial: bool = False) -> dict
 
 def validate_correction_patch(value: dict[str, Any], fixed_room_ids: set[str]) -> dict[str, Any]:
     """Validate an additive VLM proposal against immutable source room nodes."""
+    value = CorrectionPatchPayload.model_validate(value).model_dump(exclude_none=False)
     updates = value.get("room_type_updates", [])
     decisions = value.get("edge_decisions", [])
     if not isinstance(updates, list) or not isinstance(decisions, list):

@@ -112,6 +112,7 @@ def main() -> None:
     parser.add_argument("--num-shards", type=int, default=1, help="Number of deterministic manifest shards.")
     parser.add_argument("--max-new-tokens", type=int, default=1024)
     parser.add_argument("--max-pixels", type=int, default=1024 * 1024, help="Bound vision tokens; use same value across conditions.")
+    parser.add_argument("--json-repair-attempts", type=int, default=1, help="Bounded text-only retries when Qwen returns malformed JSON.")
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
@@ -127,6 +128,8 @@ def main() -> None:
         parser.error("fixed_node_correction requires --graph-context silver.")
     if args.task == "fixed_node_correction" and args.representation != "spatial":
         parser.error("fixed_node_correction requires --representation spatial.")
+    if args.json_repair_attempts < 0 or args.json_repair_attempts > 2:
+        parser.error("--json-repair-attempts must be between 0 and 2.")
 
     # Must be configured before Transformers/Hugging Face import.
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -157,6 +160,19 @@ def main() -> None:
         args.model, torch_dtype=torch.bfloat16, device_map="auto"
     ).eval()
 
+    def generate(messages: list[dict[str, Any]]) -> str:
+        """Generate once; repair calls intentionally have no image to save GPU time."""
+        image_inputs, video_inputs = process_vision_info(messages)
+        prompt_text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        inputs = processor(
+            text=[prompt_text], images=image_inputs or None, videos=video_inputs or None,
+            padding=True, return_tensors="pt",
+        ).to(model.device)
+        with torch.inference_mode():
+            generated = model.generate(**inputs, do_sample=False, max_new_tokens=args.max_new_tokens)
+        trimmed = [out[len(inp):] for inp, out in zip(inputs.input_ids, generated)]
+        return processor.batch_decode(trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
+
     rows = read_jsonl(manifest)
     if args.limit:
         rows = rows[: args.limit]
@@ -186,22 +202,7 @@ def main() -> None:
                     candidate_graph = candidate_from_cubigraph(graph_path, silver_graph)
             candidate_for_prompt = candidate_graph if candidate_graph is not None else silver_graph
             messages = make_messages(supports, image_path, spatial=spatial, prompt_version=args.prompt_version, silver_graph=candidate_for_prompt, task=args.task)
-            # qwen-vl-utils loads local image paths and creates correctly ordered vision tensors.
-            image_inputs, video_inputs = process_vision_info(messages)
-            # Keep chat templating (text) and multimodal tensor construction
-            # separate. Passing ``images`` to ``apply_chat_template`` as well
-            # duplicates locally referenced images in current Transformers.
-            prompt_text = processor.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True,
-            )
-            inputs = processor(
-                text=[prompt_text], images=image_inputs, videos=video_inputs,
-                padding=True, return_tensors="pt",
-            ).to(model.device)
-            with torch.inference_mode():
-                generated = model.generate(**inputs, do_sample=False, max_new_tokens=args.max_new_tokens)
-            trimmed = [out[len(inp):] for inp, out in zip(inputs.input_ids, generated)]
-            raw_output = processor.batch_decode(trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
+            raw_output = generate(messages)
             result: dict[str, Any] = {
                 "plan_id": plan_id,
                 "image_path": record["image_path"],
@@ -219,24 +220,45 @@ def main() -> None:
                 "num_shards": args.num_shards,
                 "decoded_at": datetime.now(timezone.utc).isoformat(),
                 "raw_output": raw_output,
+                "json_repair_outputs": [],
             }
-            try:
-                parsed = extract_json(raw_output)
-                if args.task == "fixed_node_correction":
-                    assert candidate_graph is not None
-                    patch = validate_correction_patch(parsed, {room["id"] for room in candidate_graph["rooms"]})
-                    result["correction_patch"] = patch
-                    result["candidate_graph"] = candidate_graph
-                    result["graph"] = graph_from_fixed_candidate(candidate_graph, patch)
-                    result["cubigraph_adjacency"] = cubigraph_adjacency(result["graph"])
-                else:
-                    result["graph"] = validate_graph(parsed, require_spatial=spatial)
-                result["valid"] = True
-                result["error"] = None
-            except (ValueError, json.JSONDecodeError) as error:
+            candidate_output = raw_output
+            error: ValueError | json.JSONDecodeError | None = None
+            for attempt in range(args.json_repair_attempts + 1):
+                try:
+                    parsed = extract_json(candidate_output)
+                    if args.task == "fixed_node_correction":
+                        assert candidate_graph is not None
+                        patch = validate_correction_patch(parsed, {room["id"] for room in candidate_graph["rooms"]})
+                        result["correction_patch"] = patch
+                        result["candidate_graph"] = candidate_graph
+                        result["graph"] = graph_from_fixed_candidate(candidate_graph, patch)
+                        result["cubigraph_adjacency"] = cubigraph_adjacency(result["graph"])
+                    else:
+                        result["graph"] = validate_graph(parsed, require_spatial=spatial)
+                    result["valid"] = True
+                    result["error"] = None
+                    result["valid_output"] = candidate_output
+                    result["json_repair_count"] = attempt
+                    break
+                except (ValueError, json.JSONDecodeError) as caught:
+                    error = caught
+                    if attempt == args.json_repair_attempts:
+                        continue
+                    repair_messages = [{
+                        "role": "system",
+                        "content": "Return exactly one corrected JSON object and nothing else. Preserve the intended content, remove prose/Markdown/extra fields, and satisfy the required schema from the original task.",
+                    }, {
+                        "role": "user",
+                        "content": [{"type": "text", "text": f"Your previous output failed validation: {caught}\n\nPrevious output:\n{candidate_output}"}],
+                    }]
+                    candidate_output = generate(repair_messages)
+                    result["json_repair_outputs"].append(candidate_output)
+            if not result.get("valid"):
                 result["graph"] = None
                 result["valid"] = False
-                result["error"] = str(error)
+                result["error"] = str(error or "Unknown JSON validation error")
+                result["json_repair_count"] = args.json_repair_attempts
             handle.write(json.dumps(result) + "\n")
             handle.flush()
             print(f"[{index}/{len(rows)}] {plan_id}: {'valid' if result['valid'] else 'INVALID'}")
