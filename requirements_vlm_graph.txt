@@ -5,3 +5,4 @@ accelerate
 qwen-vl-utils
 pillow
 beautifulsoup4
+shapely
