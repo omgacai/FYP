@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from retrieval_app.vlm_graph.prompts import support_instruction, system_prompt, target_instruction
+from retrieval_app.vlm_graph.prompts import silver_correction_instruction, support_instruction, system_prompt, target_instruction
 from retrieval_app.vlm_graph.schema import extract_json, validate_graph
 
 
@@ -38,14 +38,17 @@ def load_support(path: Path | None, corpus_root: Path, require_spatial: bool) ->
     return supports
 
 
-def make_messages(supports: list[dict[str, Any]], target: Path, spatial: bool, prompt_version: str) -> list[dict[str, Any]]:
+def make_messages(supports: list[dict[str, Any]], target: Path, spatial: bool, prompt_version: str, silver_graph: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     content: list[dict[str, Any]] = []
     for support in supports:
         content.extend([
             {"type": "image", "image": str(support["image_path"])},
             {"type": "text", "text": support_instruction(json.dumps(support["graph"], separators=(",", ":")))},
         ])
-    content.extend([{"type": "image", "image": str(target)}, {"type": "text", "text": target_instruction(spatial=spatial, prompt_version=prompt_version)}])
+    content.append({"type": "image", "image": str(target)})
+    if silver_graph is not None:
+        content.append({"type": "text", "text": silver_correction_instruction(json.dumps(silver_graph, separators=(",", ":")))})
+    content.append({"type": "text", "text": target_instruction(spatial=spatial, prompt_version=prompt_version)})
     return [{"role": "system", "content": system_prompt(spatial=spatial, prompt_version=prompt_version)}, {"role": "user", "content": content}]
 
 
@@ -58,7 +61,9 @@ def main() -> None:
     parser.add_argument("--mode", choices=("zero", "few"), default="zero")
     parser.add_argument("--representation", choices=("semantic", "spatial"), default="semantic")
     parser.add_argument("--prompt-version", choices=("baseline", "cubicasa_fewshot_v1"), default="baseline")
+    parser.add_argument("--graph-context", choices=("none", "silver"), default="none", help="Whether to give Qwen the CubiGraph candidate as a correction input.")
     parser.add_argument("--support-manifest", type=Path, help="JSONL with image_path and verified inline graph objects.")
+    parser.add_argument("--exclude-plan-id", action="append", default=[], help="Repeatable plan ID exclusion, e.g. for few-shot support plans.")
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--shard-index", type=int, default=0, help="Zero-based shard number for resumable corpus jobs.")
     parser.add_argument("--num-shards", type=int, default=1, help="Number of deterministic manifest shards.")
@@ -108,7 +113,8 @@ def main() -> None:
     rows = read_jsonl(manifest)
     if args.limit:
         rows = rows[: args.limit]
-    rows = [row for index, row in enumerate(rows) if index % args.num_shards == args.shard_index]
+    excluded_plan_ids = set(args.exclude_plan_id)
+    rows = [row for index, row in enumerate(rows) if index % args.num_shards == args.shard_index and str(row["plan_id"]) not in excluded_plan_ids]
     with output.open("a", encoding="utf-8") as handle:
         for index, record in enumerate(rows, start=1):
             plan_id = str(record["plan_id"])
@@ -118,7 +124,16 @@ def main() -> None:
             image_path = resolve(str(record["image_path"]), corpus_root)
             if not image_path.exists():
                 raise FileNotFoundError(f"Missing image for {plan_id}: {image_path}")
-            messages = make_messages(supports, image_path, spatial=spatial, prompt_version=args.prompt_version)
+            silver_graph = None
+            if args.graph_context == "silver":
+                graph_path_value = record.get("graph_path")
+                if not graph_path_value:
+                    raise ValueError(f"Silver-correction mode requires graph_path for {plan_id}.")
+                graph_path = resolve(str(graph_path_value), corpus_root)
+                if not graph_path.exists():
+                    raise FileNotFoundError(f"Missing CubiGraph JSON for {plan_id}: {graph_path}")
+                silver_graph = json.loads(graph_path.read_text(encoding="utf-8"))
+            messages = make_messages(supports, image_path, spatial=spatial, prompt_version=args.prompt_version, silver_graph=silver_graph)
             # qwen-vl-utils loads local image paths and creates correctly ordered vision tensors.
             image_inputs, video_inputs = process_vision_info(messages)
             # Keep chat templating (text) and multimodal tensor construction
@@ -140,6 +155,8 @@ def main() -> None:
                 "image_path": record["image_path"],
                 "mode": args.mode,
                 "prompt_version": args.prompt_version,
+                "graph_context": args.graph_context,
+                "graph_context_provenance": "silver" if silver_graph is not None else None,
                 "representation": args.representation,
                 "support_count": len(supports),
                 "model": args.model,

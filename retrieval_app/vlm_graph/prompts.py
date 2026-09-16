@@ -50,3 +50,7 @@ def target_instruction(spatial: bool = False, prompt_version: str = "baseline") 
 
 def support_instruction(graph_json: str) -> str:
     return "Verified CubiCasa-style example. Its image and graph are paired evidence; copy its annotation rules, not its room IDs or layout:\n" + graph_json
+
+
+def silver_correction_instruction(graph_json: str) -> str:
+    return """CubiGraph supplied this rule-derived SILVER candidate graph for the target plan. It may contain missing, false, or wrongly typed links. Inspect the target image yourself and return a complete corrected graph in the required schema. Do not repeat a candidate edge unless visible image evidence supports it. CubiGraph codes are 1=adjacent_to, 2=connected_by_door, 3=open_connected.\n""" + graph_json

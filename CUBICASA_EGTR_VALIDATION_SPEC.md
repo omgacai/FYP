@@ -220,6 +220,10 @@ Use the existing SOC Slurm Qwen runner.  Hold a fixed calibration subset separat
 
 The few-shot condition uses one or two CubiCasa-style **image + verified spatial graph** examples, not silver graphs. Each support graph must use the same normalised `1000 × 1000` room boxes, the same 12-class VLM-only map, and the same three mutually exclusive edge predicates as the target output. The prompt must state the decision order: visible door, then direct open-plan passage, then shared-boundary adjacency, otherwise no edge. Keep the baseline and few-shot run on the identical frozen manifest, image-resolution bound, decoding parameters, and model checkpoint. `slurm/qwen3vl_prompt_ablation.sbatch` runs that pair of conditions and writes separate raw JSONL predictions and metrics.
 
+For a smoke test before any human labels exist, `build_qwen_silver_support_from_bundle.py` may convert one or two plans from a generated Qwen review HTML bundle into `cubigraph_silver_prototype` support records. This tests that multimodal few-shot prompting and output parsing work; it does **not** test whether few-shot prompting improves correctness. Exclude those support plan IDs from both conditions and never use a silver-prototype score to select the final prompt.
+
+`slurm/qwen3vl_prompt_ablation.sbatch` is the end-to-end smoke-test job: it builds a limited CubiCasa image/SVG manifest, derives fresh CubiGraph silver JSON and relation SVGs, then produces three separate conditions: direct image-only baseline, direct CubiCasa few-shot prediction, and few-shot prediction with the silver graph supplied as a correction candidate. Every condition emits raw JSONL, silver metrics, and an HTML review bundle containing the plan image, CubiGraph relation SVG, Qwen JSON, and rendered Qwen node-edge graph. The correction arm is still a VLM proposal, never an overwrite of the silver graph.
+
 Primary outcome: valid-JSON rate, room count/type score, and edge precision/recall/F1 by predicate on the frozen audit set.  Select one prompt using calibration only, then run it once on the audit set.
 
 ### D — CNN segmentor graph extraction
