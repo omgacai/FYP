@@ -108,6 +108,8 @@ def main() -> None:
         reference = graph_path.read_text(encoding="utf-8") if graph_path and graph_path.exists() else "No CubiGraph JSON found."
         graph = prediction.get("graph")
         qwen_graph = json.dumps(graph, indent=2) if graph else "INVALID OUTPUT"
+        patch = prediction.get("correction_patch")
+        corrected_adjacency = prediction.get("cubigraph_adjacency")
         raw = str(prediction.get("raw_output", ""))
         image_html = f'<img src="{image}" alt="Original floorplan" />' if image else "<p>Original image missing.</p>"
         relation_html = f'<img src="{relation}" alt="CubiGraph relation SVG" />' if relation else "<p>Relation SVG missing.</p>"
@@ -117,7 +119,11 @@ def main() -> None:
             if overlay:
                 overlay_name = f"{position:02d}_{plan_id}_qwen_spatial_overlay.svg"
                 (assets / overlay_name).write_text(overlay, encoding="utf-8")
-                overlay_html = panel("Qwen spatial graph overlay — predicted boxes", f'<img src="assets/{overlay_name}" alt="Qwen box and graph overlay" /><p>Boxes and edges are Qwen predictions, not ground truth.</p>')
+                geometry_note = "Boxes are fixed source-SVG geometry; Qwen proposed only types/edges." if prediction.get("task") == "fixed_node_correction" else "Boxes and edges are Qwen predictions, not ground truth."
+                overlay_html = panel("Qwen spatial graph overlay", f'<img src="assets/{overlay_name}" alt="Qwen box and graph overlay" /><p>{geometry_note}</p>')
+        prediction_title = "Qwen fixed-node correction result" if prediction.get("task") == "fixed_node_correction" else "Qwen direct image-to-graph prediction"
+        patch_panel = panel("Qwen correction patch", f"<pre>{html.escape(json.dumps(patch, indent=2))}</pre>") if patch is not None else ""
+        adjacency_panel = f'<details><summary>Qwen corrected CubiGraph adjacency JSON</summary><pre>{html.escape(json.dumps(corrected_adjacency, indent=2))}</pre></details>' if corrected_adjacency is not None else ""
         checklist = """
         <ul>
           <li>Are room counts/types sensible?</li>
@@ -133,10 +139,12 @@ def main() -> None:
           <div class="grid">
             {panel("Original floorplan image", image_html)}
             {panel("CubiGraph relation SVG — silver reference", relation_html)}
-            {panel("Qwen direct image-to-graph prediction", f"<pre>{html.escape(qwen_graph)}</pre>")}
+            {panel(prediction_title, f"<pre>{html.escape(qwen_graph)}</pre>")}
             {overlay_html}
+            {patch_panel}
           </div>
           <details><summary>CubiGraph adjacency JSON — silver reference</summary><pre>{html.escape(reference)}</pre></details>
+          {adjacency_panel}
           <details><summary>Raw Qwen answer</summary><pre>{html.escape(raw)}</pre></details>
           {panel("Manual review checklist", checklist)}
         </article>""")

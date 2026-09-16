@@ -8,12 +8,24 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from retrieval_app.vlm_graph.prompts import silver_correction_instruction, support_instruction, system_prompt, target_instruction
-from retrieval_app.vlm_graph.schema import extract_json, validate_graph
+from retrieval_app.scripts.build_qwen_silver_support_from_bundle import normalise, rooms_from_relation_svg
+from retrieval_app.scripts.build_qwen_spatial_support import qwen_type
+from retrieval_app.vlm_graph.prompts import (
+    correction_system_prompt, correction_target_instruction, silver_correction_instruction,
+    support_instruction, system_prompt, target_instruction,
+)
+from retrieval_app.vlm_graph.schema import (
+    cubigraph_adjacency, extract_json, graph_from_fixed_candidate,
+    validate_correction_patch, validate_graph,
+)
+
+
+RELATIONS = {1: "adjacent_to", 2: "connected_by_door", 3: "open_connected"}
 
 
 def resolve(value: str, root: Path) -> Path:
@@ -38,7 +50,36 @@ def load_support(path: Path | None, corpus_root: Path, require_spatial: bool) ->
     return supports
 
 
-def make_messages(supports: list[dict[str, Any]], target: Path, spatial: bool, prompt_version: str, silver_graph: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+def candidate_from_cubigraph(graph_path: Path, adjacency: dict[str, Any]) -> dict[str, Any]:
+    """Bind silver edges to immutable source-SVG room geometry, not VLM boxes."""
+    relation_svg = graph_path.with_name(f"{graph_path.stem}_relations.svg")
+    if not relation_svg.exists():
+        raise FileNotFoundError(f"Missing CubiGraph relation SVG: {relation_svg}")
+    width, height, source_rooms = rooms_from_relation_svg(relation_svg)
+    rooms = []
+    for room_id, bbox in source_rooms:
+        scaled = normalise(bbox, width, height)
+        rooms.append({
+            "id": room_id,
+            "type": qwen_type(re.sub(r"[_-]\\d+$", "", room_id)),
+            "bbox": scaled,
+            "centroid": [round((scaled[0] + scaled[2]) / 2, 2), round((scaled[1] + scaled[3]) / 2, 2)],
+        })
+    room_ids = {room["id"] for room in rooms}
+    edges, seen = [], set()
+    for source, neighbours in adjacency.items():
+        if source not in room_ids or not isinstance(neighbours, dict):
+            continue
+        for target, code in neighbours.items():
+            key = tuple(sorted((source, target)))
+            if target not in room_ids or key in seen or code not in RELATIONS:
+                continue
+            seen.add(key)
+            edges.append({"source": key[0], "target": key[1], "type": RELATIONS[code], "confidence": 1.0})
+    return validate_graph({"canvas": {"width": 1000, "height": 1000}, "rooms": rooms, "edges": edges}, require_spatial=True)
+
+
+def make_messages(supports: list[dict[str, Any]], target: Path, spatial: bool, prompt_version: str, silver_graph: dict[str, Any] | None = None, task: str = "direct") -> list[dict[str, Any]]:
     content: list[dict[str, Any]] = []
     for support in supports:
         content.extend([
@@ -48,8 +89,9 @@ def make_messages(supports: list[dict[str, Any]], target: Path, spatial: bool, p
     content.append({"type": "image", "image": str(target)})
     if silver_graph is not None:
         content.append({"type": "text", "text": silver_correction_instruction(json.dumps(silver_graph, separators=(",", ":")))})
-    content.append({"type": "text", "text": target_instruction(spatial=spatial, prompt_version=prompt_version)})
-    return [{"role": "system", "content": system_prompt(spatial=spatial, prompt_version=prompt_version)}, {"role": "user", "content": content}]
+    content.append({"type": "text", "text": correction_target_instruction() if task == "fixed_node_correction" else target_instruction(spatial=spatial, prompt_version=prompt_version)})
+    prompt = correction_system_prompt() if task == "fixed_node_correction" else system_prompt(spatial=spatial, prompt_version=prompt_version)
+    return [{"role": "system", "content": prompt}, {"role": "user", "content": content}]
 
 
 def main() -> None:
@@ -60,6 +102,7 @@ def main() -> None:
     parser.add_argument("--model", default="Qwen/Qwen3-VL-8B-Instruct")
     parser.add_argument("--mode", choices=("zero", "few"), default="zero")
     parser.add_argument("--representation", choices=("semantic", "spatial"), default="semantic")
+    parser.add_argument("--task", choices=("direct", "fixed_node_correction"), default="direct")
     parser.add_argument("--prompt-version", choices=("baseline", "cubicasa_fewshot_v1"), default="baseline")
     parser.add_argument("--graph-context", choices=("none", "silver"), default="none", help="Whether to give Qwen the CubiGraph candidate as a correction input.")
     parser.add_argument("--support-manifest", type=Path, help="JSONL with image_path and verified inline graph objects.")
@@ -80,6 +123,10 @@ def main() -> None:
         parser.error("--shard-index must be in [0, --num-shards).")
     if args.prompt_version == "cubicasa_fewshot_v1" and args.mode != "few":
         parser.error("cubicasa_fewshot_v1 requires --mode few and verified support examples.")
+    if args.task == "fixed_node_correction" and args.graph_context != "silver":
+        parser.error("fixed_node_correction requires --graph-context silver.")
+    if args.task == "fixed_node_correction" and args.representation != "spatial":
+        parser.error("fixed_node_correction requires --representation spatial.")
 
     # Must be configured before Transformers/Hugging Face import.
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -125,6 +172,8 @@ def main() -> None:
             if not image_path.exists():
                 raise FileNotFoundError(f"Missing image for {plan_id}: {image_path}")
             silver_graph = None
+            candidate_graph = None
+            graph_path = None
             if args.graph_context == "silver":
                 graph_path_value = record.get("graph_path")
                 if not graph_path_value:
@@ -133,7 +182,10 @@ def main() -> None:
                 if not graph_path.exists():
                     raise FileNotFoundError(f"Missing CubiGraph JSON for {plan_id}: {graph_path}")
                 silver_graph = json.loads(graph_path.read_text(encoding="utf-8"))
-            messages = make_messages(supports, image_path, spatial=spatial, prompt_version=args.prompt_version, silver_graph=silver_graph)
+                if args.task == "fixed_node_correction":
+                    candidate_graph = candidate_from_cubigraph(graph_path, silver_graph)
+            candidate_for_prompt = candidate_graph if candidate_graph is not None else silver_graph
+            messages = make_messages(supports, image_path, spatial=spatial, prompt_version=args.prompt_version, silver_graph=candidate_for_prompt, task=args.task)
             # qwen-vl-utils loads local image paths and creates correctly ordered vision tensors.
             image_inputs, video_inputs = process_vision_info(messages)
             # Keep chat templating (text) and multimodal tensor construction
@@ -154,6 +206,7 @@ def main() -> None:
                 "plan_id": plan_id,
                 "image_path": record["image_path"],
                 "mode": args.mode,
+                "task": args.task,
                 "prompt_version": args.prompt_version,
                 "graph_context": args.graph_context,
                 "graph_context_provenance": "silver" if silver_graph is not None else None,
@@ -168,7 +221,16 @@ def main() -> None:
                 "raw_output": raw_output,
             }
             try:
-                result["graph"] = validate_graph(extract_json(raw_output), require_spatial=spatial)
+                parsed = extract_json(raw_output)
+                if args.task == "fixed_node_correction":
+                    assert candidate_graph is not None
+                    patch = validate_correction_patch(parsed, {room["id"] for room in candidate_graph["rooms"]})
+                    result["correction_patch"] = patch
+                    result["candidate_graph"] = candidate_graph
+                    result["graph"] = graph_from_fixed_candidate(candidate_graph, patch)
+                    result["cubigraph_adjacency"] = cubigraph_adjacency(result["graph"])
+                else:
+                    result["graph"] = validate_graph(parsed, require_spatial=spatial)
                 result["valid"] = True
                 result["error"] = None
             except (ValueError, json.JSONDecodeError) as error:

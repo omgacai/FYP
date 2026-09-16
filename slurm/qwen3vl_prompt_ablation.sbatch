@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end CubiCasa -> CubiGraph -> Qwen experiment. It first builds a small
 # source manifest and CubiGraph silver graph, then compares direct Qwen graph
-# extraction, CubiCasa few-shot extraction, and few-shot silver-graph correction.
+# extraction, CubiCasa few-shot extraction, and fixed-node silver-graph correction.
 # Submit from ~/vlm/code/FYP. VLM_SUPPORT contains one or two support examples.
 # Example:
 # sbatch --export=ALL,VLM_SUPPORT=/path/support.jsonl,VLM_LIMIT=20 slurm/qwen3vl_prompt_ablation.sbatch
@@ -78,6 +78,6 @@ run_condition() {
 
 run_condition direct_baseline --mode zero --prompt-version baseline --graph-context none
 run_condition direct_cubicasa_fewshot --mode few --prompt-version cubicasa_fewshot_v1 --support-manifest "$VLM_SUPPORT" --graph-context none
-run_condition silver_corrected_fewshot --mode few --prompt-version cubicasa_fewshot_v1 --support-manifest "$VLM_SUPPORT" --graph-context silver
+run_condition fixed_node_silver_correction --mode zero --prompt-version baseline --graph-context silver --task fixed_node_correction
 
 echo "Completed CubiCasa/CubiGraph pipeline and three Qwen conditions. The HTML bundles compare raw images, silver relation SVGs, Qwen JSON, and rendered Qwen graphs."

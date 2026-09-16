@@ -13,6 +13,17 @@ ROOM_TYPES = {
 EDGE_TYPES = {"adjacent_to", "connected_by_door", "open_connected"}
 
 
+def correction_patch_schema() -> str:
+    """Schema for correcting a graph whose room geometry/identity is fixed."""
+    return json.dumps({
+        "room_type_updates": [{"room_id": "Other_1", "type": "living_room", "confidence": 0.86}],
+        "edge_decisions": [{
+            "room_a": "Other_1", "room_b": "Other_3", "action": "set",
+            "predicate": "connected_by_door", "confidence": 0.91,
+        }],
+    }, indent=2)
+
+
 def graph_schema(spatial: bool = False) -> str:
     """Compact schema included in every prompt; keep it small for reproducibility."""
     value: dict[str, Any] = {
@@ -121,6 +132,93 @@ def validate_graph(value: dict[str, Any], require_spatial: bool = False) -> dict
     if canvas is not None:
         result["canvas"] = canvas
     return result
+
+
+def validate_correction_patch(value: dict[str, Any], fixed_room_ids: set[str]) -> dict[str, Any]:
+    """Validate an additive VLM proposal against immutable source room nodes."""
+    updates = value.get("room_type_updates", [])
+    decisions = value.get("edge_decisions", [])
+    if not isinstance(updates, list) or not isinstance(decisions, list):
+        raise ValueError("Correction patches need room_type_updates and edge_decisions arrays.")
+
+    clean_updates: list[dict[str, Any]] = []
+    seen_rooms: set[str] = set()
+    for update in updates:
+        if not isinstance(update, dict):
+            raise ValueError("Every room_type_update must be an object.")
+        room_id, room_type = update.get("room_id"), update.get("type")
+        if room_id not in fixed_room_ids:
+            raise ValueError(f"Unknown fixed room id in type update: {room_id!r}")
+        if room_id in seen_rooms:
+            raise ValueError(f"Duplicate type update for room: {room_id!r}")
+        if room_type not in ROOM_TYPES:
+            raise ValueError(f"Unsupported room type in correction patch: {room_type!r}")
+        confidence = update.get("confidence", 1.0)
+        if not isinstance(confidence, (int, float)) or not 0 <= confidence <= 1:
+            raise ValueError("Patch confidence must be in [0, 1].")
+        seen_rooms.add(room_id)
+        clean_updates.append({"room_id": room_id, "type": room_type, "confidence": float(confidence)})
+
+    clean_decisions: list[dict[str, Any]] = []
+    seen_pairs: set[tuple[str, str]] = set()
+    for decision in decisions:
+        if not isinstance(decision, dict):
+            raise ValueError("Every edge_decision must be an object.")
+        room_a, room_b, action = decision.get("room_a"), decision.get("room_b"), decision.get("action")
+        if room_a not in fixed_room_ids or room_b not in fixed_room_ids or room_a == room_b:
+            raise ValueError("Every patch edge must use two different fixed room ids.")
+        key = tuple(sorted((room_a, room_b)))
+        if key in seen_pairs:
+            raise ValueError(f"Duplicate edge decision for room pair: {key!r}")
+        if action not in {"set", "remove"}:
+            raise ValueError("Patch edge action must be 'set' or 'remove'.")
+        predicate = decision.get("predicate")
+        if action == "set" and predicate not in EDGE_TYPES:
+            raise ValueError("A set edge decision needs a supported predicate.")
+        if action == "remove":
+            predicate = None
+        confidence = decision.get("confidence", 1.0)
+        if not isinstance(confidence, (int, float)) or not 0 <= confidence <= 1:
+            raise ValueError("Patch confidence must be in [0, 1].")
+        seen_pairs.add(key)
+        clean = {"room_a": room_a, "room_b": room_b, "action": action, "confidence": float(confidence)}
+        if predicate is not None:
+            clean["predicate"] = predicate
+        clean_decisions.append(clean)
+    return {"room_type_updates": clean_updates, "edge_decisions": clean_decisions}
+
+
+def graph_from_fixed_candidate(candidate: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
+    """Apply a validated patch without ever changing source-derived geometry."""
+    rooms = [dict(room) for room in candidate["rooms"]]
+    room_by_id = {room["id"]: room for room in rooms}
+    for update in patch["room_type_updates"]:
+        room_by_id[update["room_id"]]["type"] = update["type"]
+
+    edge_by_pair: dict[tuple[str, str], dict[str, Any]] = {}
+    for edge in candidate["edges"]:
+        edge_by_pair[tuple(sorted((edge["source"], edge["target"])))] = dict(edge)
+    for decision in patch["edge_decisions"]:
+        key = tuple(sorted((decision["room_a"], decision["room_b"])))
+        if decision["action"] == "remove":
+            edge_by_pair.pop(key, None)
+        else:
+            edge_by_pair[key] = {
+                "source": key[0], "target": key[1], "type": decision["predicate"],
+                "confidence": decision["confidence"],
+            }
+    return validate_graph({"canvas": candidate["canvas"], "rooms": rooms, "edges": list(edge_by_pair.values())}, require_spatial=True)
+
+
+def cubigraph_adjacency(graph: dict[str, Any]) -> dict[str, dict[str, int]]:
+    """Export canonical undirected labels in the compact CubiGraph JSON form."""
+    codes = {"adjacent_to": 1, "connected_by_door": 2, "open_connected": 3}
+    adjacency = {room["id"]: {} for room in graph["rooms"]}
+    for edge in graph["edges"]:
+        source, target, code = edge["source"], edge["target"], codes[edge["type"]]
+        adjacency[source][target] = code
+        adjacency[target][source] = code
+    return adjacency
 
 
 def room_counts(graph: dict[str, Any]) -> dict[str, int]:

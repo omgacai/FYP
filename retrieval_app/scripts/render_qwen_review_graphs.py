@@ -72,7 +72,7 @@ def main() -> None:
     source = index.read_text(encoding="utf-8")
     article_pattern = re.compile(r"<article>(.*?)</article>", re.DOTALL)
     graph_panel = re.compile(
-        r'(<section class="panel"><h2>Qwen direct image-to-graph prediction</h2><pre>)(.*?)(</pre></section>)',
+        r'(<section class="panel"><h2>Qwen (?:direct image-to-graph prediction|fixed-node correction result)</h2><pre>)(.*?)(</pre></section>)',
         re.DOTALL,
     )
     changed = 0

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from retrieval_app.vlm_graph.schema import graph_schema
+from retrieval_app.vlm_graph.schema import correction_patch_schema, graph_schema
 
 
 def system_prompt(spatial: bool = False, prompt_version: str = "baseline") -> str:
@@ -53,4 +53,27 @@ def support_instruction(graph_json: str) -> str:
 
 
 def silver_correction_instruction(graph_json: str) -> str:
-    return """CubiGraph supplied this rule-derived SILVER candidate graph for the target plan. It may contain missing, false, or wrongly typed links. Inspect the target image yourself and return a complete corrected graph in the required schema. Do not repeat a candidate edge unless visible image evidence supports it. CubiGraph codes are 1=adjacent_to, 2=connected_by_door, 3=open_connected.\n""" + graph_json
+    return """CubiGraph supplied this rule-derived SILVER candidate for the target plan. Its room IDs and source-SVG-derived boxes are fixed: never add, delete, rename, or move a room. It may contain wrong room types or missing, false, or wrongly typed links. Inspect the image and return only the requested correction patch. Omit unchanged values. CubiGraph codes are 1=adjacent_to, 2=connected_by_door, 3=open_connected.\n""" + graph_json
+
+
+def correction_system_prompt() -> str:
+    return """You are reviewing a CubiCasa floorplan graph.
+Return exactly one valid JSON object and nothing else. Do not use Markdown.
+
+The target image is accompanied by a fixed-node CubiGraph candidate. Its room IDs,
+boxes, and centroids come from the source model.svg; they are not predictions and
+must not be changed. Propose only corrections that have visible image evidence.
+Use only these room types: bedroom, bathroom, kitchen, living_room, dining_room,
+corridor, storage, balcony, entrance, garage, outdoor, other.
+
+For an edge decision, use action=set with exactly one predicate, or action=remove.
+Use connected_by_door only for a visible traversable door, open_connected only for a
+direct unobstructed opening, and adjacent_to for a shared boundary with neither kind
+of direct access. Each unordered pair has at most one relation. Omit anything that
+should remain as supplied. Do not guess hidden doors.
+
+Use this exact JSON shape:\n""" + correction_patch_schema()
+
+
+def correction_target_instruction() -> str:
+    return "Inspect the final floorplan and return a correction patch for the fixed CubiGraph candidate JSON only."
