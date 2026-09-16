@@ -11,7 +11,8 @@
 #SBATCH --time=06:00:00
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=48G
-#SBATCH --gres=gpu:a100-80:1
+# The 8B smoke test fits on 40 GB; this avoids waiting for the busy 80 GB pool.
+#SBATCH --gres=gpu:a100-40:1
 #SBATCH --output=slurm/logs/qwen3vl-prompt-ablation-%j.out
 #SBATCH --error=slurm/logs/qwen3vl-prompt-ablation-%j.err
 
