@@ -245,9 +245,12 @@ def main() -> None:
                     error = caught
                     if attempt == args.json_repair_attempts:
                         continue
+                    required_schema = correction_system_prompt() if args.task == "fixed_node_correction" else system_prompt(
+                        spatial=spatial, prompt_version=args.prompt_version
+                    )
                     repair_messages = [{
                         "role": "system",
-                        "content": "Return exactly one corrected JSON object and nothing else. Preserve the intended content, remove prose/Markdown/extra fields, and satisfy the required schema from the original task.",
+                        "content": required_schema + "\n\nYour previous answer was rejected. Return only a corrected object in this exact schema; preserve its intended factual claims but remove Markdown, prose, and unsupported fields.",
                     }, {
                         "role": "user",
                         "content": [{"type": "text", "text": f"Your previous output failed validation: {caught}\n\nPrevious output:\n{candidate_output}"}],
