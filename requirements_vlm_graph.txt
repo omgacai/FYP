@@ -4,3 +4,4 @@ transformers>=4.57.0
 accelerate
 qwen-vl-utils
 pillow
+beautifulsoup4

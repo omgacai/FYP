@@ -3,7 +3,7 @@
 # It deliberately does not use ~/.venv or the login node's limited quota.
 #SBATCH --job-name=bootstrap-qwen-a100
 #SBATCH --partition=gpu
-#SBATCH --nodelist=xgph0
+# Let Slurm choose an eligible GPU node; a fixed host can leave the partition.
 #SBATCH --time=01:30:00
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=24G
