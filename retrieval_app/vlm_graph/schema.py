@@ -60,8 +60,22 @@ class EdgeDecisionPayload(_StrictPayload):
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
 
 
+class SplitChildPayload(_StrictPayload):
+    id: str = Field(min_length=1)
+    type: str
+    bbox: list[float]
+    centroid: list[float]
+
+
+class RoomSplitPayload(_StrictPayload):
+    source_room_id: str = Field(min_length=1)
+    rooms: list[SplitChildPayload] = Field(min_length=2, max_length=4)
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+
+
 class CorrectionPatchPayload(_StrictPayload):
     room_type_updates: list[TypeUpdatePayload] = Field(default_factory=list)
+    room_splits: list[RoomSplitPayload] = Field(default_factory=list)
     edge_decisions: list[EdgeDecisionPayload] = Field(default_factory=list)
 
 
@@ -69,6 +83,14 @@ def correction_patch_schema() -> str:
     """Schema for correcting a graph whose room geometry/identity is fixed."""
     return json.dumps({
         "room_type_updates": [{"room_id": "Other_1", "type": "living_room", "confidence": 0.86}],
+        "room_splits": [{
+            "source_room_id": "Other_2",
+            "rooms": [
+                {"id": "Other_2a", "type": "kitchen", "bbox": [520, 100, 700, 450], "centroid": [610, 275]},
+                {"id": "Other_2b", "type": "dining_room", "bbox": [700, 100, 900, 450], "centroid": [800, 275]},
+            ],
+            "confidence": 0.77,
+        }],
         "edge_decisions": [{
             "room_a": "Other_1", "room_b": "Other_3", "action": "set",
             "predicate": "connected_by_door", "confidence": 0.91,
@@ -194,9 +216,43 @@ def validate_correction_patch(value: dict[str, Any], fixed_room_ids: set[str]) -
     """Validate an additive VLM proposal against immutable source room nodes."""
     value = CorrectionPatchPayload.model_validate(value).model_dump(exclude_none=False)
     updates = value.get("room_type_updates", [])
+    splits = value.get("room_splits", [])
     decisions = value.get("edge_decisions", [])
-    if not isinstance(updates, list) or not isinstance(decisions, list):
-        raise ValueError("Correction patches need room_type_updates and edge_decisions arrays.")
+    if not isinstance(updates, list) or not isinstance(splits, list) or not isinstance(decisions, list):
+        raise ValueError("Correction patches need room_type_updates, room_splits, and edge_decisions arrays.")
+
+    clean_splits: list[dict[str, Any]] = []
+    split_sources: set[str] = set()
+    replacement_ids: set[str] = set()
+    for split in splits:
+        source_room_id = split["source_room_id"]
+        if source_room_id not in fixed_room_ids:
+            raise ValueError(f"Unknown source room in split: {source_room_id!r}")
+        if source_room_id in split_sources:
+            raise ValueError(f"Duplicate split for source room: {source_room_id!r}")
+        confidence = split["confidence"]
+        children: list[dict[str, Any]] = []
+        for child in split["rooms"]:
+            room_id, room_type = child["id"], child["type"]
+            if room_id in fixed_room_ids or room_id in replacement_ids:
+                raise ValueError(f"Split child id must be new and unique: {room_id!r}")
+            if room_type not in ROOM_TYPES:
+                raise ValueError(f"Unsupported split child room type: {room_type!r}")
+            bbox, centroid = child["bbox"], child["centroid"]
+            if len(bbox) != 4 or not all(isinstance(item, (int, float)) for item in bbox):
+                raise ValueError(f"Split child {room_id} needs bbox [x0, y0, x1, y1].")
+            x0, y0, x1, y1 = (float(item) for item in bbox)
+            if not (0 <= x0 < x1 <= 1000 and 0 <= y0 < y1 <= 1000):
+                raise ValueError(f"Split child {room_id} has an invalid bbox range.")
+            if len(centroid) != 2 or not all(isinstance(item, (int, float)) for item in centroid):
+                raise ValueError(f"Split child {room_id} needs centroid [x, y].")
+            cx, cy = (float(item) for item in centroid)
+            if not (0 <= cx <= 1000 and 0 <= cy <= 1000):
+                raise ValueError(f"Split child {room_id} has an invalid centroid range.")
+            replacement_ids.add(room_id)
+            children.append({"id": room_id, "type": room_type, "bbox": [x0, y0, x1, y1], "centroid": [cx, cy]})
+        split_sources.add(source_room_id)
+        clean_splits.append({"source_room_id": source_room_id, "rooms": children, "confidence": float(confidence)})
 
     clean_updates: list[dict[str, Any]] = []
     seen_rooms: set[str] = set()
@@ -206,6 +262,8 @@ def validate_correction_patch(value: dict[str, Any], fixed_room_ids: set[str]) -
         room_id, room_type = update.get("room_id"), update.get("type")
         if room_id not in fixed_room_ids:
             raise ValueError(f"Unknown fixed room id in type update: {room_id!r}")
+        if room_id in split_sources:
+            raise ValueError(f"Do not type-update a room that is being split: {room_id!r}")
         if room_id in seen_rooms:
             raise ValueError(f"Duplicate type update for room: {room_id!r}")
         if room_type not in ROOM_TYPES:
@@ -218,12 +276,13 @@ def validate_correction_patch(value: dict[str, Any], fixed_room_ids: set[str]) -
 
     clean_decisions: list[dict[str, Any]] = []
     seen_pairs: set[tuple[str, str]] = set()
+    resulting_room_ids = (fixed_room_ids - split_sources) | replacement_ids
     for decision in decisions:
         if not isinstance(decision, dict):
             raise ValueError("Every edge_decision must be an object.")
         room_a, room_b, action = decision.get("room_a"), decision.get("room_b"), decision.get("action")
-        if room_a not in fixed_room_ids or room_b not in fixed_room_ids or room_a == room_b:
-            raise ValueError("Every patch edge must use two different fixed room ids.")
+        if room_a not in resulting_room_ids or room_b not in resulting_room_ids or room_a == room_b:
+            raise ValueError("Every patch edge must use two different resulting room ids.")
         key = tuple(sorted((room_a, room_b)))
         if key in seen_pairs:
             raise ValueError(f"Duplicate edge decision for room pair: {key!r}")
@@ -242,18 +301,23 @@ def validate_correction_patch(value: dict[str, Any], fixed_room_ids: set[str]) -
         if predicate is not None:
             clean["predicate"] = predicate
         clean_decisions.append(clean)
-    return {"room_type_updates": clean_updates, "edge_decisions": clean_decisions}
+    return {"room_type_updates": clean_updates, "room_splits": clean_splits, "edge_decisions": clean_decisions}
 
 
 def graph_from_fixed_candidate(candidate: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
     """Apply a validated patch without ever changing source-derived geometry."""
-    rooms = [dict(room) for room in candidate["rooms"]]
+    split_sources = {split["source_room_id"] for split in patch["room_splits"]}
+    rooms = [dict(room) for room in candidate["rooms"] if room["id"] not in split_sources]
+    for split in patch["room_splits"]:
+        rooms.extend(dict(child) for child in split["rooms"])
     room_by_id = {room["id"]: room for room in rooms}
     for update in patch["room_type_updates"]:
         room_by_id[update["room_id"]]["type"] = update["type"]
 
     edge_by_pair: dict[tuple[str, str], dict[str, Any]] = {}
     for edge in candidate["edges"]:
+        if edge["source"] in split_sources or edge["target"] in split_sources:
+            continue
         edge_by_pair[tuple(sorted((edge["source"], edge["target"])))] = dict(edge)
     for decision in patch["edge_decisions"]:
         key = tuple(sorted((decision["room_a"], decision["room_b"])))
