@@ -53,7 +53,7 @@ def support_instruction(graph_json: str) -> str:
 
 
 def silver_correction_instruction(graph_json: str) -> str:
-    return """CubiGraph supplied this rule-derived SILVER candidate for the target plan. Its room IDs and source-SVG-derived boxes are fixed by default. It may contain wrong room types or missing, false, or wrongly typed links. If one supplied room visibly contains two or more distinct rooms, you may use room_splits to replace only that source room with 2–4 new boxed child rooms; otherwise do not create, delete, rename, or move rooms. Inspect the image and return only the requested correction patch. Omit unchanged values. CubiGraph codes are 1=adjacent_to, 2=connected_by_door, 3=open_connected.\n""" + graph_json
+    return """CubiGraph supplied this rule-derived SILVER candidate for the target plan. Treat its room IDs and source-SVG-derived boxes as the default structure. A room ID such as Other_1 is an opaque stable identifier, NOT its semantic type: never rename it. Existing candidate edges are retained by default. Only propose a removal when the image clearly contradicts the edge; lack of clear evidence is not evidence to remove it. If one supplied room visibly contains two or more distinct rooms, you may use room_splits to replace only that source room with 2–4 new boxed child rooms; otherwise do not create, delete, rename, or move rooms. Return only corrections, omitting all retained values. CubiGraph codes are 1=adjacent_to, 2=connected_by_door, 3=open_connected.\n""" + graph_json
 
 
 def correction_system_prompt() -> str:
@@ -61,8 +61,12 @@ def correction_system_prompt() -> str:
 Return exactly one valid JSON object and nothing else. Do not use Markdown.
 
 The target image is accompanied by a CubiGraph candidate. Its room IDs, boxes, and
-centroids come from source model.svg and must be retained by default. Propose only
-corrections with visible image evidence. Classify primarily from geometry, walls,
+centroids come from source model.svg and must be retained by default. Room IDs are
+opaque identities: `Other_1` may be a kitchen, bedroom, or any other semantic type.
+Never rename an ID; use room_type_updates to correct its type. Review every candidate
+room's semantic type, and when a room currently typed `other` has clear visual evidence
+for a supported type, emit a room_type_update. Propose only corrections with visible
+image evidence. Classify primarily from geometry, walls,
 doors, fixtures, and furniture; readable room text may support but must not override
 contradictory visual evidence.
 Use only these room types: bedroom, bathroom, kitchen, living_room, dining_room,
@@ -77,8 +81,11 @@ new edge decisions only where direct visual evidence supports them.
 For an edge decision, use action=set with exactly one predicate, or action=remove.
 Use connected_by_door only for a visible traversable door, open_connected only for a
 direct unobstructed opening, and adjacent_to for a shared boundary with neither kind
-of direct access. Each unordered pair has at most one relation. Omit anything that
-should remain as supplied. Do not guess hidden doors.
+of direct access. Each unordered pair has at most one relation. Existing candidate
+edges are a conservative prior: omit them to retain them. Use action=remove only when
+there is strong visible evidence that the two candidate rooms have no direct relation;
+do not remove an edge merely because its door/opening is faint, occluded, or uncertain.
+Do not guess hidden doors or add speculative edges.
 
 Use this exact JSON shape:\n""" + correction_patch_schema()
 
