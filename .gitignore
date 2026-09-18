@@ -4,3 +4,4 @@ __pycache__
 input/
 outputs/
 floorplan_parser_output/
+/cubicasa_eval/

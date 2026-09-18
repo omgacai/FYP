@@ -2,6 +2,7 @@ import React, {useMemo, useRef, useState} from "react";
 import {createRoot} from "react-dom/client";
 import "./styles.css";
 import "./handles.css";
+import ManualAnnotator from "./ManualAnnotator.jsx";
 
 const TYPES = ["LivingRoom", "Bedroom", "Kitchen", "Dining", "Bath", "Storage", "Entry", "Garage", "Other", "Outdoor"];
 // Colour identifies a room *instance*, not its predicted type. Most CubiGraph
@@ -286,4 +287,4 @@ function App() {
     </section></>}
   </main>;
 }
-createRoot(document.getElementById("root")).render(<App/>);
+createRoot(document.getElementById("root")).render(new URLSearchParams(window.location.search).get("mode") === "review" ? <App/> : <ManualAnnotator/>);

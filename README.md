@@ -6,3 +6,6 @@ extension, read [the validation specification](CUBICASA_EGTR_VALIDATION_SPEC.md)
 source SVG produces targets, while CNN/VLM graphs are predictions to evaluate.
 
 The full corpus remains on SOC storage. See [SOC_CLUSTER_TRAINING_GUIDE.md](SOC_CLUSTER_TRAINING_GUIDE.md).
+
+Current priority: [25-plan graph/QA benchmark and checklist](GRAPH_QA_BENCHMARK_PLAN.md).
+Start manual raster annotation with the [React UI](review_react/README.md).
