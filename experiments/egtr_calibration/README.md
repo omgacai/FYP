@@ -149,3 +149,18 @@ node --test review_react/src/graphEvaluation.test.js
 ```
 
 These use synthetic test fixtures; no scores from them are EGTR benchmark results.
+
+### SOC native setup candidate (2026-09-21)
+
+User verified xgpj0 has an A100 80GB, driver 580.178.04, nvcc 12.0, GCC 13 plus GCC/G++ 12, Python 3.12, and no older Python on PATH. The checkpoint archive is downloaded; its config uses placeholder class names. `bootstrap_native.sh` creates a separate managed Python 3.10 environment with PyTorch 2.1.2/cu121, torchvision 0.16.2, Transformers 4.18.0 and GCC 12. This differs from the original EGTR environment and is a compatibility candidate, not a validated reproduction. The script logs installation, checks CUDA availability and requires the custom extension to load successfully. A full checkpoint forward pass remains required after it passes.
+
+Inside the allocated A100 shell, from the FYP root:
+
+```bash
+python3 experiments/egtr_calibration/extract_vg_labels.py \
+  --archive "$HOME/aigc-storage/fyp-model-cache/egtr/vg/metadata/vg.zip" \
+  --output "$HOME/aigc-storage/fyp-model-cache/egtr/vg/labels.json"
+bash experiments/egtr_calibration/bootstrap_native.sh
+```
+
+The label extractor reads the actual official annotation archive, checks index ranges and drops only its background predicate. The downloader environment supplies uv to install Python 3.10 into persistent storage without sudo. Bootstrap logs are saved under `fyp-model-cache/egtr/setup-logs/`. Afterwards, source the printed `runtime.sh` to preserve compiler/cache settings for inference and Slurm submission.
