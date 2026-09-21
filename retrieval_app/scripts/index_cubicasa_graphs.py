@@ -2,8 +2,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections import Counter
 from pathlib import Path
+
+# Direct execution via ``python retrieval_app/scripts/...`` otherwise puts only
+# this scripts directory on sys.path, hiding the repository packages.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from floorplan_app.core.models import SVGResult
 from floorplan_app.pipeline.graph_extractor import extract_graph

@@ -17,6 +17,12 @@ from typing import Any
 from bs4 import BeautifulSoup
 from PIL import Image
 
+# Keep repository imports available when a SOC job supplies a dependency-only
+# PYTHONPATH overlay.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from retrieval_app.data.manifest import load_adjacency
 
 
