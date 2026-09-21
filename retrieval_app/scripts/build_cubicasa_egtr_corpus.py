@@ -57,9 +57,18 @@ def canvas_transform(svg, image_size: tuple[int, int]) -> tuple[float, float, fl
     return 0.0, 0.0, width, height
 
 
-def deterministic_split(plan_id: str, seed: str) -> str:
+def deterministic_split(plan_id: str, seed: str, val_percent: int) -> str:
     bucket = int(hashlib.sha256(f"{seed}:{plan_id}".encode()).hexdigest()[:8], 16) % 100
-    return "train" if bucket < 70 else "val" if bucket < 85 else "test"
+    return "val" if bucket < val_percent else "train"
+
+
+def source_identity(row: dict[str, Any]) -> str:
+    """Return the portable CubiCasa folder identity used by exclusion lists."""
+    metadata = row.get("metadata", {})
+    identity = metadata.get("source_dir") if isinstance(metadata, dict) else None
+    if not isinstance(identity, str) or not identity:
+        raise ValueError("Manifest record has no metadata.source_dir identity")
+    return identity.strip("/")
 
 
 def source_rooms(svg_path: Path, image_size: tuple[int, int], cubigraph_repo: Path, *, svg_coordinate_size: tuple[int, int] | None = None) -> list[dict[str, Any]]:
@@ -127,12 +136,32 @@ def main() -> None:
     parser.add_argument("--cubigraph-repo", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--errors", type=Path, help="Optional JSONL error report.")
+    parser.add_argument("--exclude-identities", type=Path, help="JSON array of CubiCasa folder identities excluded from all splits.")
     parser.add_argument("--seed", default="cubicasa-egtr-v1")
+    parser.add_argument("--val-percent", type=int, default=15, help="Deterministic validation percentage; remaining records train.")
     parser.add_argument("--limit", type=int, default=0)
     args = parser.parse_args()
 
     root = args.corpus_root.expanduser().resolve()
     rows = read_jsonl(args.manifest.expanduser().resolve())
+    if not 1 <= args.val_percent < 100:
+        raise ValueError("--val-percent must be between 1 and 99")
+    exclusions: set[str] = set()
+    if args.exclude_identities:
+        loaded = json.loads(args.exclude_identities.expanduser().read_text())
+        if not isinstance(loaded, list) or not all(isinstance(value, str) for value in loaded):
+            raise ValueError("--exclude-identities must be a JSON array of strings")
+        exclusions = {value.strip("/") for value in loaded}
+    included_rows = []
+    excluded_rows = []
+    for row in rows:
+        identity = source_identity(row)
+        if identity in exclusions:
+            excluded_rows.append({"plan_id": row.get("plan_id"), "source_identity": identity,
+                                  "reason": "explicit_training_exclusion"})
+        else:
+            included_rows.append(row)
+    rows = included_rows
     if args.limit:
         rows = rows[: args.limit]
     output_rows: list[dict[str, Any]] = []
@@ -154,7 +183,8 @@ def main() -> None:
             edges = canonical_edges(load_adjacency(graph_path), room_ids)
             output_rows.append({
                 "plan_id": plan_id,
-                "split": deterministic_split(plan_id, args.seed),
+                "source_identity": source_identity(row),
+                "split": deterministic_split(plan_id, args.seed, args.val_percent),
                 "image_path": str(row["image_path"]),
                 "svg_path": str(row["svg_path"]),
                 "image_size": list(image_size),
@@ -184,7 +214,23 @@ def main() -> None:
     if args.errors:
         args.errors.parent.mkdir(parents=True, exist_ok=True)
         args.errors.write_text("".join(json.dumps(row) + "\n" for row in errors), encoding="utf-8")
-    print(json.dumps({"written": len(output_rows), "errors": len(errors), "room_counts": Counter(room["category_name"] for row in output_rows for room in row["rooms"])}, indent=2))
+    metadata = {
+        "schema_version": "cubicasa-egtr-canonical/2",
+        "source_manifest": str(args.manifest.expanduser().resolve()),
+        "source_manifest_sha256": hashlib.sha256(args.manifest.expanduser().read_bytes()).hexdigest(),
+        "split_seed": args.seed,
+        "val_percent": args.val_percent,
+        "excluded_identities": sorted(exclusions),
+        "excluded_records": excluded_rows,
+        "label_provenance": {
+            "rooms": "CubiCasa model.svg source-derived boxes/classes",
+            "edges": "CubiGraph source-SVG rule-derived silver edges; open passages may be incomplete",
+        },
+    }
+    args.output.with_name(args.output.stem + ".metadata.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps({"written": len(output_rows), "excluded": len(excluded_rows), "errors": len(errors),
+                      "splits": Counter(row["split"] for row in output_rows),
+                      "room_counts": Counter(room["category_name"] for row in output_rows for room in row["rooms"])}, indent=2))
 
 
 if __name__ == "__main__":

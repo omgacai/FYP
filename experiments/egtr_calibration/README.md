@@ -6,6 +6,37 @@ Feed CubiCasa raster images to a released **full EGTR checkpoint**, inspect its 
 
 Primary relations: **direct_access** (door OR open passage) and **adjacent_to** (boundary without direct access). Raw door/open annotations stay unchanged. The graph evaluator and QA serializer apply the same collapse to references and predictions. No separate open-passage prediction head is required.
 
+## Fine-tuning data: CubiCasa source boxes + CubiGraph silver edges
+
+The first trainable EGTR dataset uses `F1_scaled.png` as input, source-derived room boxes/classes from `model.svg`, and CubiGraph's rule-derived edges. It does **not** train on the frozen VG predictions. The canonical records keep detailed `adjacent_to`, `connected_by_door`, and `open_connected` evidence; the EGTR adapter emits two trainable predicates: `adjacent_to` and merged `direct_access`.
+
+All 20 manually annotated identities in `exclusions.json` are removed before splitting. The adapter makes only deterministic train/validation splits from the remaining corpus. The manual-20 bundle remains the external gold evaluation set and must not be used to select a checkpoint or threshold.
+
+Create a 10-plan smoke corpus before processing the full dataset. On SOC, use a CPU or allocated x86-64 node, then run from the FYP root:
+
+```bash
+export CUBICASA_ROOT="$HOME/vlm/data/cubicasa5k"
+export CUBIGRAPH_REPO="$HOME/vlm/code/FYP/third_party/CubiGraph5K"
+export DERIVED="$HOME/vlm/data/derived/egtr_finetune_v1"
+mkdir -p "$DERIVED"
+
+python3 retrieval_app/scripts/build_cubicasa_manifest.py \
+  --cubicasa-root "$CUBICASA_ROOT" --output "$DERIVED/manifest_smoke.jsonl" --limit 10
+python3 retrieval_app/scripts/index_cubicasa_graphs.py \
+  --manifest "$DERIVED/manifest_smoke.jsonl" --corpus-root "$CUBICASA_ROOT" \
+  --cubigraph-repo "$CUBIGRAPH_REPO" --graph-dir "$DERIVED/cubigraph_smoke" \
+  --output "$DERIVED/graph_manifest_smoke.jsonl"
+python3 retrieval_app/scripts/build_cubicasa_egtr_corpus.py \
+  --manifest "$DERIVED/graph_manifest_smoke.jsonl" --corpus-root "$CUBICASA_ROOT" \
+  --cubigraph-repo "$CUBIGRAPH_REPO" --exclude-identities experiments/egtr_calibration/exclusions.json \
+  --output "$DERIVED/canonical_smoke.jsonl" --errors "$DERIVED/errors_smoke.jsonl"
+python3 retrieval_app/scripts/export_egtr_adapter.py \
+  --canonical "$DERIVED/canonical_smoke.jsonl" --output-dir "$DERIVED/cubicasa_visual_genome_smoke" \
+  --image-root "$CUBICASA_ROOT" --relation-mode primary_access
+```
+
+Inspect the printed counts, `errors_smoke.jsonl`, and the resulting `train.json`, `val.json`, `rel.json`, and `label_map.json` before removing `--limit 10`. The adapter's `test.json` is intentionally empty: evaluation is the separate manual-20 gold benchmark.
+
 ## Current data and execution status
 
 The local calibration snapshot is `cubicasa_eval/calibration/egtr_v2`:
