@@ -1,5 +1,7 @@
 # EGTR experiments: frozen transfer first
 
+**Current runtime:** reuse the existing Qwen PyTorch environment on a verified x86-64 GPU node (confirmed xgph1). Do not reinstall Torch. See the confirmed fix below; earlier bootstrap guidance is superseded.
+
 Feed CubiCasa raster images to a released **full EGTR checkpoint**, inspect its native objects/relations, and map only defensible labels to the floor-plan ontology. Run three calibration plans first; freeze settings before a held-out benchmark run. The released model was trained on Visual Genome/Open Images, not room-access graphs. Unsupported ontology is an experimental outcome, not an ordinary empty-graph prediction. Floor-plan fine-tuning is a separate later experiment.
 
 Primary relations: **direct_access** (door OR open passage) and **adjacent_to** (boundary without direct access). Raw door/open annotations stay unchanged. The graph evaluator and QA serializer apply the same collapse to references and predictions. No separate open-passage prediction head is required.
@@ -150,7 +152,7 @@ node --test review_react/src/graphEvaluation.test.js
 
 These use synthetic test fixtures; no scores from them are EGTR benchmark results.
 
-### SOC native setup candidate (2026-09-21)
+### Earlier SOC native setup candidate — superseded; do not rerun
 
 User verified xgpj0 has an A100 80GB, driver 580.178.04, nvcc 12.0, GCC 13 plus GCC/G++ 12, Python 3.12, and no older Python on PATH. The checkpoint archive is downloaded; its config uses placeholder class names. `bootstrap_native.sh` creates a separate managed Python 3.10 environment with PyTorch 2.1.2/cu121, torchvision 0.16.2, Transformers 4.18.0 and GCC 12. This differs from the original EGTR environment and is a compatibility candidate, not a validated reproduction. The script logs installation, checks CUDA availability and requires the custom extension to load successfully. A full checkpoint forward pass remains required after it passes.
 
@@ -164,3 +166,34 @@ bash experiments/egtr_calibration/bootstrap_native.sh
 ```
 
 The label extractor reads the actual official annotation archive, checks index ranges and drops only its background predicate. The downloader environment supplies uv to install Python 3.10 into persistent storage without sudo. Bootstrap logs are saved under `fyp-model-cache/egtr/setup-logs/`. Afterwards, source the printed `runtime.sh` to preserve compiler/cache settings for inference and Slurm submission.
+
+
+## Confirmed SOC PyTorch fix — 2026-09-21
+
+Reuse `~/aigc-storage/fyp-envs/qwen-a100-cu121/bin/python` on an **x86-64** GPU node. The user confirmed **PyTorch 2.5.1+cu121**, **xgph1**, **NVIDIA A100 80GB PCIe**, and CUDA tensor output `[2.0, 4.0, 6.0]`. No Torch installation was required. The user explicitly requests **no Torch reinstallation**.
+
+**xgpj0 is aarch64 (ARM)**. It cannot load the x86-64 Torch binaries: import reported missing `libtorch_global_deps.so` even though the file existed, `file` identified x86-64 ELF, and `ldd` said `not a dynamic executable`. Check `uname -m` before diagnosing package corruption. Requesting an A100 GPU alone does not guarantee an x86-64 CPU.
+
+From the login node:
+
+```bash
+srun --partition=gpu --nodelist=xgph1 --gres=gpu:a100-80:1 \
+  --cpus-per-task=4 --mem=24G --time=01:00:00 --pty bash -l
+```
+
+Availability can change; select another verified x86-64 GPU node if needed. Inside the allocation:
+
+```bash
+hostname
+uname -m
+export EGTR_PYTHON="$HOME/aigc-storage/fyp-envs/qwen-a100-cu121/bin/python"
+"$EGTR_PYTHON" - <<'CHECK'
+import torch
+print(torch.__version__)
+assert torch.cuda.is_available()
+print(torch.cuda.get_device_name(0))
+print((torch.tensor([1., 2., 3.], device='cuda') * 2).tolist())
+CHECK
+```
+
+Do not rerun `bootstrap_native.sh` as the next step. Its earlier native-environment recommendation is superseded for this session. Do not assume environments created on ARM are usable on x86-64. Only PyTorch GPU execution is confirmed: EGTR dependency compatibility, checkpoint loading and graph inference remain unverified.

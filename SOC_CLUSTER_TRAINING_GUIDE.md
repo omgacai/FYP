@@ -228,3 +228,34 @@ for inference; “frozen” only means its weights were not updated during train
 
 If the same failure repeats without new information, stop resubmitting and
 diagnose the first reproducible error instead.
+
+
+## Confirmed SOC PyTorch fix — 2026-09-21
+
+Reuse `~/aigc-storage/fyp-envs/qwen-a100-cu121/bin/python` on an **x86-64** GPU node. The user confirmed **PyTorch 2.5.1+cu121**, **xgph1**, **NVIDIA A100 80GB PCIe**, and CUDA tensor output `[2.0, 4.0, 6.0]`. No Torch installation was required. The user explicitly requests **no Torch reinstallation**.
+
+**xgpj0 is aarch64 (ARM)**. It cannot load the x86-64 Torch binaries: import reported missing `libtorch_global_deps.so` even though the file existed, `file` identified x86-64 ELF, and `ldd` said `not a dynamic executable`. Check `uname -m` before diagnosing package corruption. Requesting an A100 GPU alone does not guarantee an x86-64 CPU.
+
+From the login node:
+
+```bash
+srun --partition=gpu --nodelist=xgph1 --gres=gpu:a100-80:1 \
+  --cpus-per-task=4 --mem=24G --time=01:00:00 --pty bash -l
+```
+
+Availability can change; select another verified x86-64 GPU node if needed. Inside the allocation:
+
+```bash
+hostname
+uname -m
+export EGTR_PYTHON="$HOME/aigc-storage/fyp-envs/qwen-a100-cu121/bin/python"
+"$EGTR_PYTHON" - <<'CHECK'
+import torch
+print(torch.__version__)
+assert torch.cuda.is_available()
+print(torch.cuda.get_device_name(0))
+print((torch.tensor([1., 2., 3.], device='cuda') * 2).tolist())
+CHECK
+```
+
+Do not rerun `bootstrap_native.sh` as the next step. Its earlier native-environment recommendation is superseded for this session. Do not assume environments created on ARM are usable on x86-64. Only PyTorch GPU execution is confirmed: EGTR dependency compatibility, checkpoint loading and graph inference remain unverified.
