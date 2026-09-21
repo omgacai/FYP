@@ -20,7 +20,7 @@ The v2 reference geometry uses SVG polygon coordinates directly in F1_scaled pix
 
 These plans were selected deterministically outside the 20 user-specified excluded folders. Their images and source SVGs are saved locally. References use source-SVG rooms plus CubiGraph silver edges, not CNN predictions or manually verified topology. The source rules miss open passages; merged access labels do not fix those missing positives. Unreviewed absent pairs remain excluded from negative scoring.
 
-No real EGTR/Qwen inference has run. GPU environment, official checkpoint/config and ordered vocabularies are still needed. The local Mac has no CUDA. SOC access currently requires the user's terminal. Software tests and reference preparation are not model results.
+One frozen EGTR checkpoint forward pass succeeded on the first manual raster on SOC xgph1 (A100 80GB): logits `(1, 200, 150)`, boxes `(1, 200, 4)`, relations `(1, 200, 200, 50)` and connectivity `(1, 200, 200, 1)`. This validates checkpoint loading and raw tensor generation only; it is not a graph result. Full 20-plan inference and vocabulary inspection remain next. The local Mac has no CUDA. SOC access currently requires the user's terminal.
 
 ## One directory per run
 
@@ -73,6 +73,27 @@ python experiments/egtr_calibration/prepare.py \
 The exclusion file contains portable category/plan identities, covering every image variant. A different candidate inventory can produce a different deterministic selection: check `selection.json` against the table. Keep all selected calibration identities outside future final testing. `git pull` does not transfer datasets.
 
 ## Create and run an experiment
+
+On the allocated xgph1 shell, first extract the checkpoint's verified VG vocabulary and initialize an immutable manual-20 run. This is the next execution step after the smoke test:
+
+```bash
+cd ~/vlm/code/FYP
+export EGTR_PYTHON="$HOME/aigc-storage/fyp-envs/qwen-a100-cu121/bin/python"
+export PYTHONPATH="$HOME/aigc-storage/fyp-envs/egtr-deps-py312-v1"
+export EGTR_CONFIG=$(find "$HOME/aigc-storage/fyp-model-cache/egtr/vg/artifact" -name config.json -print -quit)
+export EGTR_ARTIFACT=$(dirname "$EGTR_CONFIG")
+export EGTR_CHECKPOINT=$(find "$HOME/aigc-storage/fyp-model-cache/egtr/vg/artifact" -name '*.ckpt' -print -quit)
+export EGTR_LABELS="$HOME/aigc-storage/fyp-model-cache/egtr/vg/labels.json"
+"$EGTR_PYTHON" experiments/egtr_calibration/extract_vg_labels.py \
+  --archive "$HOME/aigc-storage/fyp-model-cache/egtr/vg/metadata/vg.zip" --output "$EGTR_LABELS"
+export EGTR_RUN=$(python3 experiments/egtr_calibration/runs.py init \
+  --data cubicasa_eval/manual20_v1 --runs "$HOME/vlm/outputs/egtr/runs" \
+  --name manual20_frozen_vg --note "Frozen VG EGTR; exploratory manual-20 transfer run")
+"$EGTR_PYTHON" experiments/egtr_calibration/runs.py stage infer --run "$EGTR_RUN" \
+  --artifact "$EGTR_ARTIFACT" --checkpoint "$EGTR_CHECKPOINT" --labels "$EGTR_LABELS"
+```
+
+The stage streams its output, writes the same output to `$EGTR_RUN/logs/infer.log`, saves every raw model tensor, and creates one JSON record per plan. It does not yet map Visual Genome concepts to rooms or report a graph score.
 
 From the FYP root (initialization requires only standard Python):
 

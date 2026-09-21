@@ -6,6 +6,8 @@ import subprocess
 import shutil
 import sys
 import time
+import importlib
+import platform
 from pathlib import Path
 
 
@@ -26,24 +28,47 @@ def main():
     p.add_argument('--repo', type=Path, default=Path(__file__).resolve().parents[2] / 'third_party/egtr')
     p.add_argument('--architecture', default='SenseTime/deformable-detr')
     args = p.parse_args()
+    if platform.machine() != 'x86_64':
+        raise RuntimeError('Use the verified x86_64 SOC GPU runtime; ARM nodes cannot load this Torch build')
     sys.path.insert(0, str(args.repo.resolve()))
     import torch
     from PIL import Image
-    from model.deformable_detr import DeformableDetrConfig, DeformableDetrFeatureExtractor
-    from model.egtr import DetrForSceneGraphGeneration
+    from transformers import DetrImageProcessor, file_utils
+    from transformers.image_transforms import center_to_corners_format
     if not torch.cuda.is_available():
         raise RuntimeError('This runner requires the upstream CUDA environment')
+    # EGTR targets an older Transformers API. Supply its moved helper and
+    # temporarily suppress optional CUDA-extension compilation at import time.
+    legacy = importlib.import_module('transformers.models.detr.feature_extraction_detr')
+    legacy.center_to_corners_format = center_to_corners_format
+    original_cuda_check = file_utils.is_torch_cuda_available
+    file_utils.is_torch_cuda_available = lambda: False
+    try:
+        from model import deformable_detr
+        from model.egtr import DetrForSceneGraphGeneration
+    finally:
+        file_utils.is_torch_cuda_available = original_cuda_check
     labels = json.loads(args.labels.read_text())
-    config = DeformableDetrConfig.from_pretrained(str(args.artifact))
+    config = deformable_detr.DeformableDetrConfig.from_pretrained(str(args.artifact), local_files_only=True)
     config.logit_adjustment = False
     if len(labels['objects']) != config.num_labels or len(labels['relations']) != config.num_rel_labels:
         raise ValueError('Vocabulary dimensions do not match checkpoint config')
-    model = DetrForSceneGraphGeneration.from_pretrained(args.architecture, config=config, ignore_mismatched_sizes=True)
-    state = torch.load(str(args.checkpoint), map_location='cpu')['state_dict']
+    # Strict checkpoint loading supplies backbone weights, so avoid an unrelated
+    # network download from timm during construction.
+    original_create_model = deformable_detr.create_model
+    def create_without_download(*positional, **kwargs):
+        kwargs['pretrained'] = False
+        return original_create_model(*positional, **kwargs)
+    deformable_detr.create_model = create_without_download
+    try:
+        model = DetrForSceneGraphGeneration(config)
+    finally:
+        deformable_detr.create_model = original_create_model
+    state = torch.load(str(args.checkpoint), map_location='cpu', weights_only=False)['state_dict']
     state = {k[6:] if k.startswith('model.') else k: v for k, v in state.items()}
     model.load_state_dict(state, strict=True)
     model.cuda().eval()
-    extractor = DeformableDetrFeatureExtractor.from_pretrained(args.architecture, size=800, max_size=1333)
+    extractor = DetrImageProcessor(size={'shortest_edge': 800, 'longest_edge': 1333})
     raw_dir = args.root / 'raw'
     raw_dir.mkdir(exist_ok=True)
     upstream = subprocess.run(['git', '-C', str(args.repo), 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip()
@@ -75,7 +100,7 @@ def main():
             with Image.open(image_path) as image:
                 inputs = extractor(images=image.convert('RGB'), return_tensors='pt')
             inputs = {k: v.cuda() for k, v in inputs.items()}
-            with torch.no_grad():
+            with torch.inference_mode():
                 output = model(**inputs, output_attentions=False, output_attention_states=True, output_hidden_states=True)
             torch.cuda.synchronize()
             record['seconds_preprocess_and_forward'] = time.perf_counter() - start
