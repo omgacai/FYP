@@ -93,7 +93,7 @@ def initialize(source, runs, name, note):
 
 def snapshot_code(root, stage):
     destination = root / 'provenance' / stage / 'code'
-    files = list(HERE.glob('*.py')) + list(HERE.glob('*.mjs')) + [REPO / 'review_react/src/graphEvaluation.js', REPO / 'retrieval_app/scripts/build_cubicasa_egtr_corpus.py', REPO / 'floorplan_app/pipeline/graph_extractor.py']
+    files = list(HERE.glob('*.py')) + list(HERE.glob('*.mjs')) + list(HERE.glob('*.html')) + [REPO / 'review_react/src/graphEvaluation.js', REPO / 'retrieval_app/scripts/build_cubicasa_egtr_corpus.py', REPO / 'floorplan_app/pipeline/graph_extractor.py']
     hashes = {}
     for source in files:
         relative = source.relative_to(REPO)
@@ -125,6 +125,8 @@ def stage_command(args, root):
         if not args.model or not args.revision:
             raise ValueError('qa needs --model and --revision')
         return [sys.executable, str(HERE / 'qa.py'), '--root', str(root), '--model', args.model, '--revision', args.revision]
+    if stage == 'report':
+        return [sys.executable, str(HERE / 'report.py'), '--root', str(root)]
     if stage == 'preview':
         return [sys.executable, str(HERE / 'preview.py'), '--root', str(root)]
     raise ValueError(stage)
@@ -256,7 +258,7 @@ def main():
     init.add_argument('--name', required=True)
     init.add_argument('--note', default='')
     stage = commands.add_parser('stage')
-    stage.add_argument('stage', choices=['infer', 'adapt', 'evaluate', 'preview', 'qa'])
+    stage.add_argument('stage', choices=['infer', 'adapt', 'evaluate', 'preview', 'report', 'qa'])
     stage.add_argument('--run', type=Path, required=True)
     for key in ('artifact', 'checkpoint', 'labels', 'mapping'):
         stage.add_argument('--' + key, type=Path)

@@ -197,3 +197,56 @@ CHECK
 ```
 
 Do not rerun `bootstrap_native.sh` as the next step. Its earlier native-environment recommendation is superseded for this session. Do not assume environments created on ARM are usable on x86-64. Only PyTorch GPU execution is confirmed: EGTR dependency compatibility, checkpoint loading and graph inference remain unverified.
+
+## User-selected manual 20-plan run (2026-09-21)
+
+The user now requests evaluation/visual inspection on the same 20 previously
+excluded plan identities. They remain excluded from training. Selection is an
+explicit evaluation request, not permission to tune on an untouched test set.
+If these plans inform subsequent model/threshold selection, report them as
+exploratory evaluation rather than a pristine final holdout.
+
+`prepare_manual.py` copies the original manually annotated raster bytes, checks
+image hashes and reviewed status, and makes a portable manifest. It does not
+substitute another image variant or change annotation labels/completeness.
+
+```bash
+python3 experiments/egtr_calibration/prepare_manual.py --output cubicasa_eval/manual20_v1
+```
+
+This needs the saved manual JSONs/images on the machine where it runs. The Mac
+already has a prepared `cubicasa_eval/manual20_v1.tar.gz` bundle; transfer that
+to SOC instead of reconstructing manual references from source SVGs.
+
+After unpacking on SOC, initialize a fresh run:
+
+```bash
+export EGTR_RUN=$(python3 experiments/egtr_calibration/runs.py init \
+  --data cubicasa_eval/manual20_v1 --name manual20_frozen_vg \
+  --note "20 manual references; frozen model evaluation")
+```
+
+Before attempting inference, use the **existing** Qwen Python on x86-64 xgph1:
+
+```bash
+"$HOME/aigc-storage/fyp-envs/qwen-a100-cu121/bin/python" \
+  experiments/egtr_calibration/check_existing_runtime.py
+```
+
+This installs nothing. It probes dependency versions and EGTR Python imports
+without compiling CUDA or loading weights. A failure means dependency
+compatibility still needs addressing; do not reinstall Torch. Full model
+execution remains a separate check and has not yet succeeded in this session.
+
+Generate a portable, self-contained visualization before or after any stage:
+
+```bash
+python3 experiments/egtr_calibration/report.py --root "$EGTR_RUN"
+```
+
+Open `report.html` in a browser. It embeds all rasters and records, works offline,
+and provides a plan picker, original image, reference/raw/adapted overlays,
+boxes/edges/labels toggles, errors, matching, scores, native triplets and
+provenance. Missing predictions are explicitly identified. Regenerating this
+derived report does not overwrite raw evidence or metrics. Transfer the HTML
+back to the Mac after a SOC run to inspect results without a remote web server.

@@ -115,3 +115,15 @@ A merged class does not require separate door/open supervision, but source rules
 Use `experiments/egtr_calibration/runs.py` to initialize unique run folders under gitignored `egtr_runs/`, snapshot inputs, execute stages with streamed/saved logs, preserve commands/code/package provenance, and regenerate summaries plus a comparison CSV. EGTR raw tensors and ranked triplets are retained separately from adapted graphs. Primary evaluation/QA uses merged direct_access. Runs record missing and unsupported coverage explicitly and never overwrite an attempted stage. No actual frozen EGTR inference has run yet; SOC environment and checkpoint setup remain outstanding.
 
 Calibration reference correction: `egtr_v1` is superseded by `egtr_v2`. Visual overlay verification exposed incorrect SVG-viewport rescaling. Room extraction now uses the F1_scaled coordinate canvas (as the official CubiCasa loader does), with explicit scaling only for a different target raster size. Old snapshots remain preserved but must not be scored. The corrected overlays were inspected for all three selected plans.
+
+### Manual-20 execution request — 2026-09-21
+
+User explicitly selected the 20 manually annotated identities previously listed
+as exclusions for a frozen EGTR run and visual inspection. Preserve their
+training exclusion. Package exact annotated images and unchanged manual JSONs
+with `prepare_manual.py`; do not substitute pipeline silver references. Report
+access-class metrics, missing predictions and incomplete negative-label coverage.
+If these results guide tuning, label this an exploratory evaluation set, not an
+untouched final test. Interactive self-contained report: `report.py`.
+Runtime preflight uses existing x86-64 Qwen Torch; EGTR imports/forward remain
+unverified until SOC output is received.
