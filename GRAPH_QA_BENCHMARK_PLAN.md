@@ -99,3 +99,7 @@ Start the React app, annotate the separate calibration images, save JSON locally
 - 2026-09-18: Shifted immediate scope from supervised graph training/retrieval to a 25-plan raster graph/QA pilot; introduced normalized point-node manual annotation and explicit uncertain relations; retained door/open/adjacency separation.
 
 - 2026-09-18: Added normalized room polygons and derived `bbox_xyxy` in schema `floorplan-manual-graph/2` at the user’s request. Geometry is preserved separately from graph relations. Full EGTR dataset conversion remains future work.
+
+### Calibration execution update — 2026-09-21
+
+For the first three-plan frozen EGTR feasibility run, use plans outside all 20 folders in `cubicasa_eval/exclusion_manifest.json`. The user selected SOC compute and CubiCasa pipeline references. Initial reference graphs are source-SVG rooms plus CubiGraph silver edges, **not manual gold**. The current rules emit door/adjacency only; open passages and absent-pair negatives remain unverified. Name the corresponding QA arm `image + reference graph` until manually reviewed. Selected calibration identities are `high_quality/14343`, `high_quality/1900`, `high_quality/1097`; reserve them outside the final benchmark. Implementation/status: `experiments/egtr_calibration/README.md`. Keep the original held-out manual benchmark intact.
