@@ -10,11 +10,12 @@ import argparse
 import hashlib
 import json
 import sys
+import warnings
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, FeatureNotFound, XMLParsedAsHTMLWarning
 from PIL import Image
 
 # Keep repository imports available when a SOC job supplies a dependency-only
@@ -77,14 +78,23 @@ def source_identity(row: dict[str, Any]) -> str:
     return identity.strip("/")
 
 
-def source_rooms(svg_path: Path, image_size: tuple[int, int], cubigraph_repo: Path, *, svg_coordinate_size: tuple[int, int] | None = None) -> list[dict[str, Any]]:
+def source_rooms(svg_path: Path, image_size: tuple[int, int], cubigraph_repo: Path, *, svg_coordinate_size: tuple[int, int] | None = None) -> tuple[list[dict[str, Any]], str]:
     src = cubigraph_repo / "src"
     if str(src) not in sys.path:
         sys.path.insert(0, str(src))
     from plan import Plan
 
     # Match CubiGraph's parser: its class selectors expect HTML-style class lists.
-    soup = BeautifulSoup(svg_path.read_text(encoding="utf-8"), "lxml")
+    svg_text = svg_path.read_text(encoding="utf-8")
+    try:
+        soup = BeautifulSoup(svg_text, "lxml")
+        parser_backend = "lxml"
+    except FeatureNotFound:
+        # This matches the successful CubiGraph indexing stage on SOC. Its
+        # required g/polygon tags and class attributes are retained here.
+        warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
+        soup = BeautifulSoup(svg_text, "html.parser")
+        parser_backend = "html.parser"
     svg = soup.find("svg")
     if svg is None:
         raise ValueError(f"No SVG root in {svg_path}")
@@ -115,7 +125,7 @@ def source_rooms(svg_path: Path, image_size: tuple[int, int], cubigraph_repo: Pa
             "category_name": room.type,
             "bbox_xyxy": [round(x0, 3), round(y0, 3), round(x1, 3), round(y1, 3)],
         })
-    return rooms
+    return rooms, parser_backend
 
 
 def canonical_edges(adjacency: dict[str, dict[str, int]], room_ids: set[str]) -> list[dict[str, Any]]:
@@ -184,7 +194,7 @@ def main() -> None:
                 raise FileNotFoundError("image_path, svg_path, or graph_path is missing")
             with Image.open(image_path) as image:
                 image_size = image.size
-            rooms = source_rooms(svg_path, image_size, args.cubigraph_repo.expanduser().resolve())
+            rooms, parser_backend = source_rooms(svg_path, image_size, args.cubigraph_repo.expanduser().resolve())
             room_ids = {room["room_id"] for room in rooms}
             edges = canonical_edges(load_adjacency(graph_path), room_ids)
             output_rows.append({
@@ -199,6 +209,7 @@ def main() -> None:
                 "review": {"status": "pending", "corrections": []},
                 "provenance": {
                     "source": "CubiCasa5K model.svg",
+                    "svg_parser": parser_backend,
                     "svg_sha256": hashlib.sha256(svg_path.read_bytes()).hexdigest(),
                     "graph_path": str(row["graph_path"]),
                     "graph_provenance": str(row.get("graph_provenance", "silver")),
