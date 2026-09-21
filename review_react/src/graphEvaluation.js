@@ -3,7 +3,8 @@ export const VERSION='floorplan-evaluation/1';
 export const RELATIONS=['connected_by_door','open_connected','adjacent_to','uncertain'];
 const aliases={bedroom:'Bedroom',bathroom:'Bath',bath:'Bath',kitchen:'Kitchen',living_room:'LivingRoom',livingroom:'LivingRoom',dining_room:'Dining',dining:'Dining',corridor:'Corridor',storage:'Storage',entrance:'Entry',entry:'Entry',garage:'Garage',balcony:'Outdoor',outdoor:'Outdoor',other:'Other'};
 const pair=(a,b)=>JSON.stringify([a,b].sort());
-export function normalizeGraph(record){
+export function normalizeGraph(record,{relationMode='fine'}={}){
+  if(!['fine','access'].includes(relationMode))throw Error('relationMode must be fine or access');
   if(record.valid===false)throw Error(record.error||'Prediction marked invalid');
   const g=record.graph||record;
   if(!Array.isArray(g.nodes||g.rooms)||!Array.isArray(g.edges))throw Error('Expected nodes/rooms and edges arrays');
@@ -18,8 +19,9 @@ export function normalizeGraph(record){
   });
   const ids=new Set(nodes.map(n=>n.id));if(ids.size!==nodes.length)throw Error('Duplicate room ids');
   const seen=new Map();
-  for(const e of g.edges){const a=e.a??e.source,b=e.b??e.target,relation=e.relation??e.type;
-    if(!ids.has(a)||!ids.has(b)||a===b||!RELATIONS.includes(relation))throw Error('Invalid edge endpoint or unsupported relation');
+  for(const e of g.edges){const a=e.a??e.source,b=e.b??e.target;let relation=e.relation??e.type;
+    if(relationMode==='access'&&['connected_by_door','open_connected'].includes(relation))relation='direct_access';
+    if(!ids.has(a)||!ids.has(b)||a===b||![...RELATIONS,'direct_access'].includes(relation))throw Error('Invalid edge endpoint or unsupported relation');
     const key=pair(a,b);if(seen.has(key)&&seen.get(key).relation!==relation)throw Error('Conflicting relations on the same undirected pair');
     seen.set(key,{a,b,relation});
   }
@@ -32,9 +34,9 @@ function assignment(cost){const n=cost.length;if(!n)return [];const m=cost[0].le
   const result=Array(n).fill(-1);for(let j=1;j<=m;j++)if(p[j])result[p[j]-1]=j-1;return result;
 }
 export function metrics(tp,fp,fn){return {tp,fp,fn,precision:tp+fp?tp/(tp+fp):null,recall:tp+fn?tp/(tp+fn):null,f1:2*tp+fp+fn?2*tp/(2*tp+fp+fn):null};}
-export function evaluateGraph(reference,prediction,{minIoU=0.3,completePairs=false}={}){
+export function evaluateGraph(reference,prediction,{minIoU=0.3,completePairs=false,relationMode='fine'}={}){
   if(!(minIoU>0&&minIoU<=1))throw Error('minIoU must be in (0,1]');
-  const gold=normalizeGraph(reference),pred=normalizeGraph(prediction);
+  const gold=normalizeGraph(reference,{relationMode}),pred=normalizeGraph(prediction,{relationMode});
   if(gold.plan_id&&pred.plan_id&&gold.plan_id!==pred.plan_id)throw Error('Plan IDs do not match');
   const weights=pred.nodes.map(p=>gold.nodes.map(g=>iou(p.bbox_xyxy,g.bbox_xyxy)));
   const assign=assignment(weights.map(row=>[...row.map(w=>w>=minIoU?-(1+w/(Math.min(gold.nodes.length,pred.nodes.length)+1)):1),...pred.nodes.map(()=>0)]));
@@ -48,9 +50,9 @@ export function evaluateGraph(reference,prediction,{minIoU=0.3,completePairs=fal
   for(const [key,g] of ge){const p=pe.get(key);if(g.relation==='uncertain'){excluded.push({gold:g,pred:p,reason:'uncertain reference'});pe.delete(key);continue;}if(!p)edgeErrors.push({kind:'missing',gold:g,incident_unmatched:!used.has(g.a)||!used.has(g.b)});else if(p.relation!==g.relation)edgeErrors.push({kind:'wrong_type',gold:g,pred:p});else correct.push({gold:g,pred:p});pe.delete(key);}
   for(const p of pe.values()){if(exhaustive)edgeErrors.push({kind:'extra',pred:p});else excluded.push({pred:p,reason:'unreviewed absent pair'});}
   const counts=Object.fromEntries(['missing','extra','wrong_type'].map(k=>[k,{nodes:nodeErrors.filter(e=>e.kind===k).length,edges:edgeErrors.filter(e=>e.kind===k).length}]));
-  const perRelation=Object.fromEntries(RELATIONS.filter(r=>r!=='uncertain').map(r=>[r,metrics(correct.filter(e=>e.gold.relation===r).length,edgeErrors.filter(e=>e.pred?.relation===r).length,edgeErrors.filter(e=>e.gold?.relation===r).length)]));
+  const perRelation=Object.fromEntries((relationMode==='access'?['direct_access','adjacent_to']:['connected_by_door','open_connected','direct_access','adjacent_to']).map(r=>[r,metrics(correct.filter(e=>e.gold.relation===r).length,edgeErrors.filter(e=>e.pred?.relation===r).length,edgeErrors.filter(e=>e.gold?.relation===r).length)]));
   const edgeMetric=metrics(correct.length,edgeErrors.filter(e=>e.pred).length,edgeErrors.filter(e=>e.gold).length);
   const edit=nodeErrors.length+edgeErrors.filter(e=>!e.incident_unmatched).length;
-  return {schema_version:VERSION,plan_id:gold.plan_id,settings:{minIoU,completePairs,matching:'maximum-cardinality then maximum-IoU, class-blind',exhaustive},gold,pred,matches,nodeErrors,edgeErrors,excluded,correct,counts,node_metrics:metrics(matches.length,counts.extra.nodes,counts.missing.nodes),type_accuracy:matches.length?(matches.length-counts.wrong_type.nodes)/matches.length:null,edge_metrics:edgeMetric,per_relation:perRelation,aligned_edit_cost:edit,normalized_edit_cost:edit/Math.max(1,gold.nodes.length+gold.edges.filter(e=>e.relation!=='uncertain').length),warnings:exhaustive?[]:['Absent reference pairs are not confirmed negatives; extra-edge scores have partial coverage.']};
+  return {schema_version:VERSION,plan_id:gold.plan_id,settings:{minIoU,completePairs,relationMode,matching:'maximum-cardinality then maximum-IoU, class-blind',exhaustive},gold,pred,matches,nodeErrors,edgeErrors,excluded,correct,counts,node_metrics:metrics(matches.length,counts.extra.nodes,counts.missing.nodes),type_accuracy:matches.length?(matches.length-counts.wrong_type.nodes)/matches.length:null,edge_metrics:edgeMetric,per_relation:perRelation,aligned_edit_cost:edit,normalized_edit_cost:edit/Math.max(1,gold.nodes.length+gold.edges.filter(e=>e.relation!=='uncertain').length),warnings:exhaustive?[]:['Absent reference pairs are not confirmed negatives; extra-edge scores have partial coverage.']};
 }
 export function demoPrediction(reference){const p=structuredClone(reference);p.demo=true;p.status='synthetic_demo';if(p.nodes.length)p.nodes[0].type=p.nodes[0].type==='Kitchen'?'Bedroom':'Kitchen';if(p.edges.length)p.edges[0].relation=p.edges[0].relation==='adjacent_to'?'connected_by_door':'adjacent_to';if(p.edges.length>1)p.edges.splice(1,1);if(p.nodes.length>2){const removed=p.nodes.pop().id;p.edges=p.edges.filter(e=>e.a!==removed&&e.b!==removed);}p.nodes.push({id:'synthetic-extra',type:'Other',label:'Synthetic extra',bbox_xyxy:[0.01,0.01,0.09,0.09]});return p;}

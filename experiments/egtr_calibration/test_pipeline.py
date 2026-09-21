@@ -1,4 +1,8 @@
 import unittest
+import tempfile
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 import torch
 from experiments.egtr_calibration.adapt import adapt
 from experiments.egtr_calibration.prepare import identity
@@ -13,6 +17,18 @@ class AdapterTests(unittest.TestCase):
         mapping = {'objects': {'room': {'target': 'Bedroom', 'justification': 'Synthetic test only'}},
                    'relations': {'door': {'target': 'connected_by_door', 'justification': 'Synthetic test only'}}}
         return raw, tensors, mapping
+
+    def test_cubicasa_coordinates_do_not_scale_from_svg_viewport(self):
+        from retrieval_app.scripts.build_cubicasa_egtr_corpus import source_rooms
+        room = SimpleNamespace(name='Bedroom_1', type='Bedroom', points=[(100, 100), (300, 200)])
+        fake_plan = SimpleNamespace(Plan=lambda svg: SimpleNamespace(rooms=[room]))
+        with tempfile.TemporaryDirectory() as folder, patch.dict('sys.modules', {'plan': fake_plan}):
+            svg = Path(folder) / 'model.svg'
+            svg.write_text('<svg width="500" height="400" viewBox="0 0 500 400"></svg>')
+            result = source_rooms(svg, (1000, 800), Path(folder), svg_coordinate_size=(1000, 800))
+            self.assertEqual(result[0]['bbox_xyxy'], [100, 100, 300, 200])
+            smaller = source_rooms(svg, (500, 400), Path(folder), svg_coordinate_size=(1000, 800))
+            self.assertEqual(smaller[0]['bbox_xyxy'], [50, 50, 150, 100])
 
     def test_symmetric_predictions_are_one_edge_without_self_loops(self):
         raw, tensors, mapping = self.fixture()

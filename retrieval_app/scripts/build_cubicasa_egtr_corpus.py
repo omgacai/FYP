@@ -62,7 +62,7 @@ def deterministic_split(plan_id: str, seed: str) -> str:
     return "train" if bucket < 70 else "val" if bucket < 85 else "test"
 
 
-def source_rooms(svg_path: Path, image_size: tuple[int, int], cubigraph_repo: Path) -> list[dict[str, Any]]:
+def source_rooms(svg_path: Path, image_size: tuple[int, int], cubigraph_repo: Path, *, svg_coordinate_size: tuple[int, int] | None = None) -> list[dict[str, Any]]:
     src = cubigraph_repo / "src"
     if str(src) not in sys.path:
         sys.path.insert(0, str(src))
@@ -73,7 +73,15 @@ def source_rooms(svg_path: Path, image_size: tuple[int, int], cubigraph_repo: Pa
     svg = soup.find("svg")
     if svg is None:
         raise ValueError(f"No SVG root in {svg_path}")
-    origin_x, origin_y, svg_width, svg_height = canvas_transform(svg, image_size)
+    # Official CubiCasa loading rasterizes SVG coordinates directly on F1_scaled.
+    # SVG viewport dimensions may differ and must not define coordinate scaling.
+    if svg_coordinate_size is None:
+        with Image.open(svg_path.with_name("F1_scaled.png")) as scaled_image:
+            svg_coordinate_size = scaled_image.size
+    origin_x, origin_y = 0.0, 0.0
+    svg_width, svg_height = svg_coordinate_size
+    if svg_width <= 0 or svg_height <= 0:
+        raise ValueError("SVG coordinate canvas must be positive")
     scale_x, scale_y = image_size[0] / svg_width, image_size[1] / svg_height
     plan = Plan(svg)
     rooms: list[dict[str, Any]] = []

@@ -1,8 +1,12 @@
-# Three-plan frozen EGTR calibration
+# EGTR experiments: frozen transfer first
 
-Prepared 2026-09-21. This experiment uses **source CubiCasa model.svg room boxes plus CubiGraph rule-derived silver edges**, not manually reviewed graphs or CNN predictions. It does not change the 20 saved benchmark annotations.
+Feed CubiCasa raster images to a released **full EGTR checkpoint**, inspect its native objects/relations, and map only defensible labels to the floor-plan ontology. Run three calibration plans first; freeze settings before a held-out benchmark run. The released model was trained on Visual Genome/Open Images, not room-access graphs. Unsupported ontology is an experimental outcome, not an ordinary empty-graph prediction. Floor-plan fine-tuning is a separate later experiment.
 
-Selected deterministically before model inference:
+Primary relations: **direct_access** (door OR open passage) and **adjacent_to** (boundary without direct access). Raw door/open annotations stay unchanged. The graph evaluator and QA serializer apply the same collapse to references and predictions. No separate open-passage prediction head is required.
+
+## Current data and execution status
+
+The local calibration snapshot is `cubicasa_eval/calibration/egtr_v2`:
 
 | Source plan | Rooms | Silver edges |
 |---|---:|---:|
@@ -10,96 +14,138 @@ Selected deterministically before model inference:
 | high_quality/1900 | 10 | 8 |
 | high_quality/1097 | 8 | 7 |
 
-All 20 supplied exclusion folders were excluded by category/plan identity, independent of local/cluster path prefixes. All image variants of excluded plans are therefore excluded. The runnable data snapshot lives in `cubicasa_eval/calibration/egtr_v1`; manifest and selection JSON preserve hashes and selection provenance. Reserve these three for calibration and exclude them from subsequent final test selection.
+The v2 reference geometry uses SVG polygon coordinates directly in F1_scaled pixel space, matching the CubiCasa loader. The earlier v1 snapshot incorrectly rescaled from the SVG viewport and is superseded; do not score against v1.
 
-## Status
+These plans were selected deterministically outside the 20 user-specified excluded folders. Their images and source SVGs are saved locally. References use source-SVG rooms plus CubiGraph silver edges, not CNN predictions or manually verified topology. The source rules miss open passages; merged access labels do not fix those missing positives. Unreviewed absent pairs remain excluded from negative scoring.
 
-- Source-derived references and nine draft count questions generated locally.
-- Adapter unit tests and graph evaluator checks available.
-- Actual EGTR and Qwen inference **not run**: local CUDA unavailable; `soc-nus` SSH failed at the jump host with `Permission denied (publickey)`.
-- Checkpoint, its matching config, ordered vocabularies, and upstream-compatible EGTR environment still required.
-- Draft QA answers require raster review. Add direct-relation and compound questions after checking source-rule errors. Do not claim these nine count questions measure topology sensitivity.
+No real EGTR/Qwen inference has run. GPU environment, official checkpoint/config and ordered vocabularies are still needed. The local Mac has no CUDA. SOC access currently requires the user's terminal. Software tests and reference preparation are not model results.
 
-The existing rule extractor does not detect `open_connected`; its adjacency rule is a buffered-polygon heuristic. Reference graphs deliberately retain `all_pairs_reviewed=false`. Scores measure agreement with this pipeline, not verified ground-truth topology. The QA condition is named `reference_graph`, not `manual_graph`.
+## One directory per run
 
-## Run on SOC
-
-Keep EGTR's legacy environment separate from the modern Qwen environment. Upstream setup: https://github.com/naver-ai/egtr . Use the **full trained EGTR** checkpoint link, not just its pretrained object detector. Its documented torch/transformers versions are in `third_party/egtr/requirements.txt`; install/build on an allocated compute node, not xlogin. No requirement that you use eight GPUs for this inference probe.
-
-1. Copy this code directory, the existing `third_party/egtr`, the shared evaluator module, and the calibration snapshot into the corresponding FYP paths on SOC. The snapshot already contains the exact three rasters and source references, so there is no need to regenerate them remotely.
-2. Obtain the official checkpoint artifact and retain `config.json`. Supply `labels.json` with `objects` and `relations` arrays in exact output-index order. For VG, objects follow COCO category ID minus one; relations follow `rel_categories[1:]`, excluding no_relation. Never guess label order. The runner checks dimensions, but semantic ordering must match the actual artifact.
-3. From the FYP root set `EGTR_PYTHON`, `EGTR_ARTIFACT`, `EGTR_CHECKPOINT`, `EGTR_LABELS` to actual paths, then submit:
-
-```bash
-sbatch experiments/egtr_calibration/run_egtr.sbatch
+```text
+egtr_runs/
+  experiments.csv                         # regenerated cross-run comparison
+  20260921T..._frozen_vg_001/
+    run.json                              # intent, dataset identity, input hashes
+    status.json                           # per-stage status and exit codes
+    manifest.json
+    images/                               # exact raster snapshot
+    annotations/                          # original reference labels
+    questions.jsonl                       # frozen questions, if available
+    raw/<plan>.pt                         # complete logits/boxes/relations/connectivity
+    raw/<plan>.json                       # objects, top 100 triplets, provenance, time/errors
+    predictions/egtr_frozen/<plan>.json    # adapted graph or explicit unavailable outcome
+    overlays/                             # separate reference/raw/adapted visualizations
+    results/graph_metrics.json            # per-plan + aggregate graph metrics and coverage
+    results/qa.jsonl                       # paired QA answers/prompts, when run
+    logs/<stage>.log                       # console output, streamed live and saved
+    provenance/<stage>/                   # exact commands, code copies/hashes, package list
+    summary.json                          # settings, coverage, metrics, paired QA deltas
 ```
 
-Scheduler resource choices may need adapting to your allocation. The runner requires CUDA and loads the full checkpoint strictly. Saves full raw tensors plus object labels/scores, image/config/checkpoint hashes and timing. Existing raw records are protected against overwrite.
+Run data are gitignored. Back up the run folders separately; Git stores the pipeline, not your experiment results. Weights remain in one external checkpoint directory; runs record their SHA-256 instead of duplicating large checkpoints.
 
-4. Inspect raw outputs and source vocabulary. Fill `ontology_mapping.json` only for defensible mappings:
+New run IDs are unique even with the same name. Initialization copies inputs and verifies image/reference hashes. Every stage rechecks the input snapshot. Stages are single-attempt to prevent mixing configurations or overwriting results: use a new run for changed parameters or retries. Different runs can execute independently; a `.stage-lock` prevents simultaneous writes within one run. If a scheduler forcibly kills a process, the saved state may remain running; inspect the Slurm outcome and preserve that interrupted run before starting a new one.
 
-```json
-{"objects": {"ACTUAL_SOURCE_CLASS": {"target": "Kitchen", "justification": "Explain why this class denotes a kitchen room"}}, "relations": {"ACTUAL_SOURCE_RELATION": {"target": "connected_by_door", "justification": "Explain evidence of direct door access"}}}
-```
+## Prepare the cluster (no Apptainer required)
 
-The shipped mappings are intentionally empty. Mapping objects in a kitchen to a kitchen room, or `near` to door access, is not valid. If the ontology cannot represent the task, record that outcome and stop the frozen graph QA arm. Do not silently substitute an empty successful prediction.
+Use a dedicated native Python/Conda environment for legacy EGTR; keep it separate from modern Qwen. Inspect Python, CUDA toolkit (`nvcc`), compiler and modules before choosing installation commands. A CUDA driver alone does not provide the compiler required by the deformable-attention extension. Upstream targets PyTorch 1.12.1/CUDA 11.3 and Transformers 4.18.0; this cluster setup is not validated yet. Install/build on an allocated compute node, not xlogin.
 
-5. Adapt and evaluate from the FYP root:
-
-```bash
-"$EGTR_PYTHON" experiments/egtr_calibration/adapt.py \
-  --root cubicasa_eval/calibration/egtr_v1 \
-  --mapping experiments/egtr_calibration/ontology_mapping.json
-node experiments/egtr_calibration/evaluate.mjs cubicasa_eval/calibration/egtr_v1
-```
-
-Thresholds (object .3, combined relation .01, room-matching IoU .3) are provisional calibration settings, not validated defaults. Inspect class-blind spatial correspondences. Symmetric relation predictions reduce to the maximum-scoring supported type/direction per pair. Full tensors are preserved. Use a new snapshot version when changing thresholds; predictions are not overwritten.
-
-## QA
-
-Review each question against the raster, fix answer/evidence errors, and set `review_status` to `human_reviewed` in `questions.jsonl`. Accepted answers never enter model prompts. Add direct door/open-passage, negative, and compound questions only after checking the required evidence. Pin one Qwen3-VL checkpoint revision for every condition.
-
-Run on a GPU allocation in the existing modern Qwen environment:
-
-```bash
-python experiments/egtr_calibration/qa.py \
-  --root cubicasa_eval/calibration/egtr_v1 \
-  --model YOUR_QWEN3_VL_MODEL --revision YOUR_PINNED_REVISION
-```
-
-This produces paired `image_only`, `reference_graph`, and `egtr_graph` records with raw answers, prompts, deterministic decoding, exact-answer scores, runtime and explicit failures/unavailable arms. Unsupported EGTR outputs remain unavailable rather than silently becoming image-only QA. Reference and predicted graphs use the same stripped serialization. No human-reference claim is made.
-
-Use matched question IDs for QA comparisons, report arm coverage/failures, and calculate `reference_graph accuracy - egtr_graph accuracy` and `egtr_graph accuracy - image_only accuracy` in percentage points. Three plans are a feasibility check, not a reliable estimate of generalization or a graph-error tolerance threshold.
-
-## Local verification
-
-```bash
-.venv/bin/python -m unittest experiments.egtr_calibration.test_pipeline
-node --test review_react/src/graphEvaluation.test.js
-node experiments/egtr_calibration/evaluate.mjs
-```
-
-Synthetic adapter tests are software checks only; they are not EGTR results.
-
-## Cluster without Apptainer
-
-Apptainer is not required. Use a **separate native Python/Conda environment** for EGTR; do not install its legacy dependencies into the existing Qwen environment. Before selecting install commands, inspect available Python versions, CUDA toolkit (`nvcc`), compiler and cluster modules. The custom deformable-attention extension requires a compatible CUDA build environment. GPU drivers alone do not supply `nvcc`. The original dependency set targets PyTorch 1.12.1/CUDA 11.3 and Transformers 4.18.0; compatibility on this cluster has not yet been validated.
-
-After pulling this commit, fetch the pinned upstream repositories:
+Fetch pinned upstream repositories from the FYP root:
 
 ```bash
 bash experiments/egtr_calibration/fetch_sources.sh
 ```
 
-This does not install packages or overwrite existing checkouts. EGTR inference uses upstream source directly; the local Visual Genome training-loader modification is not needed for this experiment. Upstream repositories and datasets are not included in this commit.
+Download the **full trained EGTR checkpoint** and matching `config.json` from the [official repository](https://github.com/naver-ai/egtr). `labels.json` must contain `objects` and `relations` arrays in exact model output order, without background entries. For Visual Genome, object indices are COCO category IDs minus one, and predicates are `rel_categories[1:]`. The runner checks dimensions; correct semantic ordering still requires the matching original vocabulary.
 
-The portable `exclusions.json` stores the 20 excluded category/plan identities. To regenerate the same three calibration inputs on the cluster after source-pipeline dependencies are installed, set `CUBICASA_DATASET` to the directory containing `high_quality/` and `colorful/`, then run from the FYP root:
+To regenerate calibration data, set `CUBICASA_DATASET` to the directory containing `colorful/` and `high_quality/`. Install Pillow, numpy, beautifulsoup4, lxml and shapely in the preparation environment, then:
 
 ```bash
 python experiments/egtr_calibration/prepare.py \
   --dataset "$CUBICASA_DATASET" \
   --exclusions experiments/egtr_calibration/exclusions.json \
-  --output cubicasa_eval/calibration/egtr_v1
+  --output cubicasa_eval/calibration/egtr_v2
 ```
 
-Selection is deterministic for the same candidate inventory. Compare `selection.json` against the three identities listed above; a different dataset inventory may select different plans. This command requires Pillow, numpy, beautifulsoup4, lxml and shapely. It refuses to overwrite an existing output directory. Data remain gitignored; `git pull` alone does not transfer the locally generated references or image snapshot.
+The exclusion file contains portable category/plan identities, covering every image variant. A different candidate inventory can produce a different deterministic selection: check `selection.json` against the table. Keep all selected calibration identities outside future final testing. `git pull` does not transfer datasets.
+
+## Create and run an experiment
+
+From the FYP root (initialization requires only standard Python):
+
+```bash
+export EGTR_RUN=$(python3 experiments/egtr_calibration/runs.py init \
+  --data cubicasa_eval/calibration/egtr_v2 \
+  --name frozen_vg_001 \
+  --note "Released VG checkpoint; three-plan transfer feasibility")
+```
+
+Review questions against the raster **before** creating a run if QA is planned. Generated questions are drafts; change `review_status` to `human_reviewed` only after review. Nine count questions alone do not test topology sensitivity. Add relation/compound questions with checked evidence. A changed question set needs a new run.
+
+Set `EGTR_PYTHON`, `EGTR_ARTIFACT`, `EGTR_CHECKPOINT`, `EGTR_LABELS` to actual paths in your SOC setup; do not paste placeholder paths. Then submit:
+
+```bash
+sbatch --output="$EGTR_RUN/logs/slurm-%j.out" \
+  --error="$EGTR_RUN/logs/slurm-%j.err" \
+  experiments/egtr_calibration/run_egtr.sbatch
+```
+
+The job calls the tracked inference stage. Native Python and Slurm are sufficient; resource requests may need adapting to your allocation. Watch the scheduler log or, after inference starts:
+
+```bash
+tail -f "$EGTR_RUN/logs/infer.log"
+```
+
+`Ctrl-C` stops following the log, not the Slurm job. Check the queue with `squeue -u "$USER"`.
+
+## Inspect, map, evaluate
+
+Inspect `raw/*.json` and checkpoint vocabularies before populating the mapping. The shipped mapping is intentionally empty. Entries take `{ "target": "direct_access", "justification": "Evidence supporting this mapping" }` under an actual source predicate name, with analogous room mappings under `objects`. Never map `near` to access or a furniture object to a room. If no defensible mapping exists, record unsupported coverage and do not interpret a graph score as floor-plan ability.
+
+Run adaptation in the EGTR environment after inference:
+
+```bash
+"$EGTR_PYTHON" experiments/egtr_calibration/runs.py stage adapt \
+  --run "$EGTR_RUN" \
+  --mapping experiments/egtr_calibration/ontology_mapping.json \
+  --object-threshold 0.3 --relation-threshold 0.01
+
+python3 experiments/egtr_calibration/runs.py stage evaluate \
+  --run "$EGTR_RUN" --min-iou 0.3
+
+"$EGTR_PYTHON" experiments/egtr_calibration/runs.py stage preview \
+  --run "$EGTR_RUN"
+```
+
+Evaluation requires Node.js. Thresholds above are provisional calibration values. Inspect class-blind spatial matching. Relation scores multiply subject/object confidence, relation probability and auxiliary connectivity; the highest supported score across directions/types wins for each unordered pair. The auxiliary connectivity output does not itself mean physical access.
+
+Metrics include node/typed-edge precision, recall, F1, room type accuracy per plan, per-relation scores, aligned edit cost, excluded pairs and explicit missing/invalid/unavailable coverage. Aggregate metrics cover evaluated plans only; report coverage with them. Source silver labels measure agreement with the pipeline, not manual-gold accuracy. Reference kind stays explicit.
+
+## QA and comparing runs
+
+Use the fixed Qwen3-VL checkpoint in its separate environment, on an allocated GPU:
+
+```bash
+python experiments/egtr_calibration/runs.py stage qa \
+  --run "$EGTR_RUN" --model YOUR_QWEN3_VL_MODEL --revision YOUR_PINNED_REVISION
+```
+
+The three arms are `image_only`, `reference_graph`, `egtr_graph`. Prompts never include accepted answers. Missing/unsupported EGTR graphs produce unavailable records, not image-only substitutes. Summaries report arm coverage and QA gain/gap only on question IDs successfully answered in all three arms. Pipeline references are never silently renamed manual gold.
+
+Regenerate summaries and the comparison CSV:
+
+```bash
+python3 experiments/egtr_calibration/runs.py list
+```
+
+The CSV includes checkpoint/input hashes, thresholds, reference kind, stage status, graph coverage and graph metrics. Detailed QA comparisons remain in each `summary.json`. Compare runs on the same inputs and reference protocol. Three plans establish feasibility, not reliable generalization.
+
+## Software checks
+
+```bash
+python -m unittest experiments.egtr_calibration.test_pipeline experiments.egtr_calibration.test_runs
+node --test review_react/src/graphEvaluation.test.js
+```
+
+These use synthetic test fixtures; no scores from them are EGTR benchmark results.

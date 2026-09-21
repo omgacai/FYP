@@ -49,7 +49,7 @@ def main():
         image, svg = directory / 'F1_scaled.png', directory / 'model.svg'
         with Image.open(image) as im:
             width, height = im.size
-        rooms = source_rooms(svg, (width, height), repo)
+        rooms = source_rooms(svg, (width, height), repo, svg_coordinate_size=(width, height))
         graph = extract_graph(SVGResult(svg_text=svg.read_text(), path=svg, diagnostics={}), repo,
                               args.output / 'source' / f'{plan}_relations.svg')
         edges = canonical_edges(graph.adjacency, {r['room_id'] for r in rooms})
@@ -61,7 +61,7 @@ def main():
                      'unsupported_reference_relations': ['open_connected'],
                      'image': {'width': width, 'height': height, 'sha256': sha(image), 'local_path': f'images/{plan}.png'},
                      'nodes': nodes, 'edges': [{'a': e['room_a'], 'b': e['room_b'], 'relation': e['predicate']} for e in edges],
-                     'source': {'plan_identity': key, 'svg_sha256': sha(svg), 'diagnostics': graph.diagnostics,
+                     'source': {'coordinate_policy': 'CubiCasa SVG points are F1_scaled pixels; no viewport rescaling', 'plan_identity': key, 'svg_sha256': sha(svg), 'diagnostics': graph.diagnostics,
                                 'extractor_sha256': sha(Path(__file__).resolve().parents[2] / 'floorplan_app/pipeline/graph_extractor.py')}}
         annotation = args.output / 'annotations' / f'{plan}.graph.json'
         annotation.write_text(json.dumps(reference, indent=2) + '\n')

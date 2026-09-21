@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 
 SYSTEM = ('Answer the floor-plan question using the image and, when supplied, the graph. '
-          'The graph may contain errors. connected_by_door and open_connected mean direct access; '
+          'The graph may contain errors. direct_access means a door or open passage joins the rooms; '
           'adjacent_to means shared boundary without direct access. '
           'Return only the requested integer, yes, no, or unknown. Use unknown when the evidence is ambiguous.')
 
@@ -14,7 +14,7 @@ SYSTEM = ('Answer the floor-plan question using the image and, when supplied, th
 def graph_context(record):
     g = record.get('graph', record)
     return {'nodes': [{k: n[k] for k in ('id', 'type', 'bbox_xyxy')} for n in g['nodes']],
-            'edges': [{k: e[k] for k in ('a', 'b', 'relation')} for e in g['edges']]}
+            'edges': [{'a': e['a'], 'b': e['b'], 'relation': 'direct_access' if e['relation'] in ('connected_by_door', 'open_connected') else e['relation']} for e in g['edges']]}
 
 
 def main():

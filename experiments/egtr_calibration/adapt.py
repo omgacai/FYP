@@ -3,17 +3,20 @@ import argparse
 import json
 from pathlib import Path
 
-RELATIONS = {'connected_by_door', 'open_connected', 'adjacent_to'}
+RELATIONS = {'direct_access', 'connected_by_door', 'open_connected', 'adjacent_to'}
 ROOMS = {'Bedroom', 'Bath', 'Kitchen', 'LivingRoom', 'Dining', 'Corridor', 'Storage', 'Entry', 'Garage', 'Outdoor', 'Other'}
 
 
 def adapt(raw, tensors, mapping, object_threshold, relation_threshold):
     if raw['status'] != 'ok':
-        return {'plan_id': raw['plan_id'], 'valid': False, 'error': raw.get('error', 'Inference failed')}
+        return {'plan_id': raw['plan_id'], 'valid': False, 'status': 'inference_failed', 'error': raw.get('error', 'Inference failed')}
     for section, allowed in [('objects', ROOMS), ('relations', RELATIONS)]:
         for source, spec in mapping[section].items():
             if spec['target'] not in allowed or not spec.get('justification', '').strip():
                 raise ValueError(f'Invalid or unjustified mapping: {source}')
+    for section, source_labels in [('objects', {o['label'] for o in raw['objects']} | set(raw['provenance']['labels'].get('objects', []))), ('relations', set(raw['provenance']['labels']['relations']))]:
+        if not set(mapping[section]).issubset(source_labels):
+            raise ValueError(f'Mapping contains unknown {section} source labels')
     nodes, supported, excluded = [], {}, []
     for obj in raw['objects']:
         if obj['score'] < object_threshold:
@@ -50,6 +53,7 @@ def adapt(raw, tensors, mapping, object_threshold, relation_threshold):
                     pairs[key] = {'a': f'q{key[0]}', 'b': f'q{key[1]}', 'relation': spec['target'], 'confidence': score}
     ontology_supported = bool(mapping['objects']) and bool(mapping['relations'])
     return {'plan_id': raw['plan_id'], 'valid': ontology_supported,
+            'status': 'ok' if ontology_supported else 'unsupported_ontology',
             'error': None if ontology_supported else 'Room or relation ontology unsupported; do not score as an ordinary empty graph',
             'graph': {'nodes': nodes, 'edges': list(pairs.values())},
             'coverage': {'retained_nodes': len(nodes), 'unsupported_objects': excluded,

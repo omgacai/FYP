@@ -5,3 +5,5 @@ input/
 outputs/
 floorplan_parser_output/
 /cubicasa_eval/
+
+/egtr_runs/

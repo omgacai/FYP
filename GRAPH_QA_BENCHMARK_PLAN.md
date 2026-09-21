@@ -103,3 +103,15 @@ Start the React app, annotate the separate calibration images, save JSON locally
 ### Calibration execution update — 2026-09-21
 
 For the first three-plan frozen EGTR feasibility run, use plans outside all 20 folders in `cubicasa_eval/exclusion_manifest.json`. The user selected SOC compute and CubiCasa pipeline references. Initial reference graphs are source-SVG rooms plus CubiGraph silver edges, **not manual gold**. The current rules emit door/adjacency only; open passages and absent-pair negatives remain unverified. Name the corresponding QA arm `image + reference graph` until manually reviewed. Selected calibration identities are `high_quality/14343`, `high_quality/1900`, `high_quality/1097`; reserve them outside the final benchmark. Implementation/status: `experiments/egtr_calibration/README.md`. Keep the original held-out manual benchmark intact.
+
+### Evaluation relation clarification — 2026-09-21
+
+The user intends to merge `connected_by_door` and `open_connected` into one `direct_access` class for the primary experiment. Preserve the finer labels in raw manual annotations; apply the same collapse to reference and predicted graphs before primary edge scoring and QA serialization. Keep shared-boundary-only `adjacent_to` separate. Earlier requirements to train/evaluate door and open passage as separate primary classes are superseded for this test. Fine-grained results are optional diagnostics. The EGTR experiment evaluator now uses an access view that collapses both labels to direct_access; raw annotation labels remain intact. The shared evaluator retains an optional fine-grained mode.
+
+A merged class does not require separate door/open supervision, but source rules that detect doors only still miss open-passage positives. Such pipeline references remain incomplete silver access labels, not exhaustive negative evidence. Avoid using missing source-rule edges as verified no-access labels.
+
+### Experiment tracking implementation — 2026-09-21
+
+Use `experiments/egtr_calibration/runs.py` to initialize unique run folders under gitignored `egtr_runs/`, snapshot inputs, execute stages with streamed/saved logs, preserve commands/code/package provenance, and regenerate summaries plus a comparison CSV. EGTR raw tensors and ranked triplets are retained separately from adapted graphs. Primary evaluation/QA uses merged direct_access. Runs record missing and unsupported coverage explicitly and never overwrite an attempted stage. No actual frozen EGTR inference has run yet; SOC environment and checkpoint setup remain outstanding.
+
+Calibration reference correction: `egtr_v1` is superseded by `egtr_v2`. Visual overlay verification exposed incorrect SVG-viewport rescaling. Room extraction now uses the F1_scaled coordinate canvas (as the official CubiCasa loader does), with explicit scaling only for a different target raster size. Old snapshots remain preserved but must not be scored. The corrected overlays were inspected for all three selected plans.
