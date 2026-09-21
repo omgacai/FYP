@@ -247,7 +247,8 @@ def main() -> None:
     args.output.with_name(args.output.stem + ".metadata.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"written": len(output_rows), "excluded": len(excluded_rows), "errors": len(errors),
                       "splits": Counter(row["split"] for row in output_rows),
-                      "room_counts": Counter(room["category_name"] for row in output_rows for room in row["rooms"])}, indent=2))
+                      "room_counts": Counter(room["category_name"] for row in output_rows for room in row["rooms"]),
+                      "silver_edge_counts": Counter(edge["predicate"] for row in output_rows for edge in row["silver_edges"])}, indent=2))
 
 
 if __name__ == "__main__":
