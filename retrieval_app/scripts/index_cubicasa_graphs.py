@@ -45,9 +45,27 @@ def main() -> None:
     graph_dir = args.graph_dir.expanduser().resolve()
     graph_dir.mkdir(parents=True, exist_ok=True)
     records = [json.loads(line) for line in args.manifest.expanduser().read_text(encoding="utf-8").splitlines() if line.strip()]
+    if len({record["plan_id"] for record in records}) != len(records):
+        raise ValueError("Manifest contains duplicate plan IDs")
+    output = args.output.expanduser().resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    partial = output.with_name(output.name + ".partial.jsonl")
+    completed: dict[str, dict] = {}
+    if partial.exists():
+        for line in partial.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                record = json.loads(line)
+                completed[record["plan_id"]] = record
+        unexpected = set(completed) - {record["plan_id"] for record in records}
+        if unexpected:
+            raise ValueError(f"Partial index does not match this manifest: {sorted(unexpected)[:3]}")
+        print(f"Resuming {len(completed)} indexed plans from {partial}")
     enriched: list[dict] = []
 
     for index, record in enumerate(records, start=1):
+        if record["plan_id"] in completed:
+            enriched.append(completed[record["plan_id"]])
+            continue
         if args.limit and index > args.limit:
             enriched.extend(records[index - 1:])
             break
@@ -69,11 +87,14 @@ def main() -> None:
         record["graph_provenance"] = "silver"
         record.setdefault("metadata", {})["graph_extractor"] = graph.diagnostics["relation_policy"]
         enriched.append(record)
+        with partial.open("a", encoding="utf-8") as checkpoint:
+            checkpoint.write(json.dumps(record) + "\n")
+            checkpoint.flush()
         print(f"[{index}/{len(records)}] {record['plan_id']}: {graph.diagnostics['nodes']} nodes")
 
-    output = args.output.expanduser().resolve()
-    output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text("".join(json.dumps(record) + "\n" for record in enriched), encoding="utf-8")
+    if partial.exists():
+        partial.unlink()
     print(f"Wrote {len(enriched)} records to {output}")
 
 
