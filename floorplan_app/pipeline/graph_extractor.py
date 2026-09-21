@@ -10,7 +10,17 @@ from bs4 import BeautifulSoup, FeatureNotFound, XMLParsedAsHTMLWarning
 from floorplan_app.core.models import GraphResult, SVGResult
 
 
-def generate_door_first_relations(plan) -> None:
+def _repair_geometry(geometry):
+    """Return a usable geometry and whether the source polygon needed repair."""
+    if geometry.is_valid:
+        return geometry, False
+    repaired = geometry.buffer(0)
+    if repaired.is_empty:
+        raise ValueError("Invalid source polygon became empty during repair")
+    return repaired, True
+
+
+def generate_door_first_relations(plan) -> dict[str, int]:
     """Generate mutually exclusive graph labels with valid-door evidence first.
 
     CubiGraph's original implementation tests buffered polygon adjacency before
@@ -20,20 +30,35 @@ def generate_door_first_relations(plan) -> None:
     intended ``via-door`` label.
     """
     plan.relation = []
+    repairs = {"room_polygons_repaired": 0, "door_polygons_repaired": 0}
+    room_geometries = {}
+    door_geometries = {}
     for room in plan.rooms:
-        room.get_adjacent_doors(plan.doors)
+        geometry, repaired = _repair_geometry(room.to_shapely_polygon())
+        room_geometries[room.name] = geometry
+        repairs["room_polygons_repaired"] += int(repaired)
+        room.adjacent_doors = set()
+    for door in plan.doors:
+        geometry, repaired = _repair_geometry(door.to_shapely_polygon())
+        door_geometries[door.name] = geometry
+        repairs["door_polygons_repaired"] += int(repaired)
+    for room in plan.rooms:
+        for door_name, door_geometry in door_geometries.items():
+            if room_geometries[room.name].intersection(door_geometry.buffer(1.0)).area > 10.0:
+                room.adjacent_doors.add(door_name)
     for index, room1 in enumerate(plan.rooms):
         for room2 in plan.rooms[index + 1:]:
             shared_door = room1.adjacent_doors.intersection(room2.adjacent_doors)
             if shared_door:
                 label = 2  # via-door
-            elif room1.to_shapely_polygon().buffer(1.0).intersection(
-                room2.to_shapely_polygon().buffer(1.0)
+            elif room_geometries[room1.name].buffer(1.0).intersection(
+                room_geometries[room2.name].buffer(1.0)
             ).area > 5.0:
                 label = 1  # adjacent only
             else:
                 label = 0
             plan.relation.append((room1.name, label, room2.name))
+    return repairs
 
 
 def extract_graph(svg_result: SVGResult, cubigraph_repo: Path, output_path: Path) -> GraphResult:
@@ -61,7 +86,7 @@ def extract_graph(svg_result: SVGResult, cubigraph_repo: Path, output_path: Path
         soup = BeautifulSoup(svg_result.svg_text, 'html.parser')
         parser_backend = 'html.parser fallback'
     plan = Plan(soup.find('svg'))
-    generate_door_first_relations(plan)
+    repairs = generate_door_first_relations(plan)
     adjacency = plan.get_adjacency_list()
     output_path.write_text(str(plan.generate_relation_svg()), encoding='utf-8')
     relation_counts = {1: 0, 2: 0}
@@ -78,6 +103,7 @@ def extract_graph(svg_result: SVGResult, cubigraph_repo: Path, output_path: Path
             'door_connected_edges': relation_counts[2],
             'relation_policy': 'door-first experimental',
             'svg_parser_backend': parser_backend,
+            **repairs,
             'adjacency_json': json.dumps(adjacency, indent=2),
         },
     )
