@@ -22,8 +22,15 @@ def main():
         plans.append({'id':row['plan_id'],'image':'data:'+ (mimetypes.guess_type(image.name)[0] or 'image/png')+';base64,'+base64.b64encode(image.read_bytes()).decode(),
             'reference':read(root/'annotations'/f"{row['plan_id']}.graph.json"),
             'raw':read(root/'raw'/f"{row['plan_id']}.json"),
-            'prediction':read(root/args.prediction_dir/f"{row['plan_id']}.json"),
+            # EGTR adapters store the normalized graph under ``graph`` while
+            # the CubiCasa CNN → CubiGraph batch writer stores it directly as
+            # ``nodes``/``edges``. Normalize both shapes for the shared viewer.
+            'prediction': None,
             'evaluation':reports.get(row['plan_id'])})
+        prediction = read(root / args.prediction_dir / f"{row['plan_id']}.json")
+        if prediction and prediction.get('valid') is not False and 'graph' not in prediction and isinstance(prediction.get('nodes'), list):
+            prediction = {**prediction, 'graph': {'plan_id': prediction.get('plan_id'), 'nodes': prediction['nodes'], 'edges': prediction.get('edges', [])}}
+        plans[-1]['prediction'] = prediction
     template=Path(__file__).with_name('report_template.html').read_text()
     prediction_name=Path(args.prediction_dir).name
     method_title = ('CubiCasa CNN + CubiGraph evaluation' if prediction_name == 'cubicasa_cnn_cubigraph'
