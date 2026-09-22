@@ -25,7 +25,11 @@ def main():
             'prediction':read(root/args.prediction_dir/f"{row['plan_id']}.json"),
             'evaluation':reports.get(row['plan_id'])})
     template=Path(__file__).with_name('report_template.html').read_text()
-    payload=json.dumps({'plans':plans,'metrics':metrics,'run':read(root/'run.json'),'status':read(root/'status.json')}).replace('<','\\u003c')
+    prediction_name=Path(args.prediction_dir).name
+    method_title = ('CubiCasa CNN + CubiGraph evaluation' if prediction_name == 'cubicasa_cnn_cubigraph'
+                    else 'EGTR experiment review')
+    payload=json.dumps({'plans':plans,'metrics':metrics,'run':read(root/'run.json'),'status':read(root/'status.json'),
+                        'method_title': method_title}).replace('<','\\u003c')
     output=root/'report.html'
     output.write_text(template.replace('__PAYLOAD__',payload))
     print(f'Report: {output.resolve()} ({len(plans)} plans; prediction-free plans explicitly marked)')
