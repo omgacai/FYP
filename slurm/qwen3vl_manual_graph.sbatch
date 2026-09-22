@@ -28,6 +28,7 @@ VLM_SHARD_INDEX="${VLM_SHARD_INDEX:-${SLURM_ARRAY_TASK_ID:-0}}"
 VLM_RUN_NAME="${VLM_RUN_NAME:-qwen3vl8b_manual20_direct_spatial}"
 VLM_MAX_PIXELS="${VLM_MAX_PIXELS:-1048576}"
 VLM_PROMPT_VERSION="${VLM_PROMPT_VERSION:-baseline}"
+VLM_JSON_REPAIR_ATTEMPTS="${VLM_JSON_REPAIR_ATTEMPTS:-1}"
 
 [[ "$(uname -m)" == "x86_64" ]] || { echo "This Qwen environment requires x86_64" >&2; exit 2; }
 [[ -f "$VENV_DIR/.ready" ]] || { echo "Missing Qwen ready marker: $VENV_DIR/.ready" >&2; exit 2; }
@@ -45,4 +46,4 @@ python -m retrieval_app.scripts.run_qwen_graph \
   --model Qwen/Qwen3-VL-8B-Instruct --mode zero --representation spatial \
   --prompt-version "$VLM_PROMPT_VERSION" --graph-context none --limit 0 \
   --num-shards "$VLM_NUM_SHARDS" --shard-index "$VLM_SHARD_INDEX" \
-  --max-pixels "$VLM_MAX_PIXELS" --max-new-tokens 1024 --json-repair-attempts 1
+  --max-pixels "$VLM_MAX_PIXELS" --max-new-tokens 1024 --json-repair-attempts "$VLM_JSON_REPAIR_ATTEMPTS"
