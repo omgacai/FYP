@@ -45,7 +45,12 @@ def main():
     parser.add_argument('--epochs', type=int, required=True)
     parser.add_argument('--batch-size', type=int, default=1)
     parser.add_argument('--accumulate', type=int, default=4)
-    parser.add_argument('--lr', type=float, default=2e-6)
+    # The released checkpoint transfers the visual backbone, but leaves the
+    # CubiCasa classifiers and two-predicate relation head freshly initialized.
+    # A conservative first-stage rate prevents an early head update from
+    # corrupting the transferred weights.
+    parser.add_argument('--lr', type=float, default=2e-7)
+    parser.add_argument('--adam-eps', type=float, default=1e-6)
     parser.add_argument('--weight-decay', type=float, default=1e-4)
     parser.add_argument('--num-workers', type=int, default=2)
     parser.add_argument('--max-train-batches', type=int, default=0, help='0 means all batches')
@@ -136,7 +141,7 @@ def main():
     transferable = {key: value for key, value in initial.items() if key in model_state and model_state[key].shape == value.shape}
     model.load_state_dict(transferable, strict=False)
     model.cuda()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay, eps=args.adam_eps)
     start_epoch, best_validation = 0, float('inf')
     if args.resume:
         saved = torch.load(args.resume, map_location='cpu', weights_only=False)
@@ -156,15 +161,36 @@ def main():
     def move(batch):
         return batch['pixel_values'].cuda(non_blocking=True), batch['pixel_mask'].cuda(non_blocking=True), [{key: value.cuda(non_blocking=True) for key, value in target.items()} for target in batch['labels']]
 
+    def batch_sources(batch, dataset):
+        """Return source paths for diagnostics without making them model input."""
+        sources = []
+        for target in batch['labels']:
+            value = target.get('image_id')
+            image_id = int(value.item()) if hasattr(value, 'item') else int(value)
+            sources.append({'image_id': image_id, 'file_name': dataset.coco.imgs[image_id]['file_name']})
+        return sources
+
+    def finite_gradients():
+        invalid = [name for name, parameter in model.named_parameters()
+                   if parameter.grad is not None and not torch.isfinite(parameter.grad).all()]
+        return invalid
+
     for epoch in range(start_epoch, args.epochs):
         model.train(); optimizer.zero_grad(set_to_none=True); losses = []
         for step, batch in enumerate(train_loader, start=1):
+            sources = batch_sources(batch, train_data)
             pixels, mask, labels = move(batch)
             output = model(pixel_values=pixels, pixel_mask=mask, labels=labels, output_attentions=False,
                            output_attention_states=True, output_hidden_states=True)
             if output.loss is None or not torch.isfinite(output.loss):
-                raise RuntimeError(f'Non-finite training loss at epoch={epoch} step={step}: {output.loss}')
+                components = {name: float(value.detach().cpu()) for name, value in output.loss_dict.items()}
+                raise RuntimeError(f'Non-finite training loss at epoch={epoch} step={step}; sources={sources}; '
+                                   f'loss={output.loss}; components={components}')
             (output.loss / args.accumulate).backward()
+            invalid_gradients = finite_gradients()
+            if invalid_gradients:
+                raise RuntimeError(f'Non-finite gradient at epoch={epoch} step={step}; sources={sources}; '
+                                   f'parameters={invalid_gradients[:10]}')
             if step % args.accumulate == 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 0.1)
                 optimizer.step(); optimizer.zero_grad(set_to_none=True)
@@ -180,11 +206,14 @@ def main():
         model.eval(); validation = []
         with torch.inference_mode():
             for step, batch in enumerate(val_loader, start=1):
+                sources = batch_sources(batch, val_data)
                 pixels, mask, labels = move(batch)
                 output = model(pixel_values=pixels, pixel_mask=mask, labels=labels, output_attentions=False,
                                output_attention_states=True, output_hidden_states=True)
                 if output.loss is None or not torch.isfinite(output.loss):
-                    raise RuntimeError(f'Non-finite validation loss at epoch={epoch} step={step}: {output.loss}')
+                    components = {name: float(value.detach().cpu()) for name, value in output.loss_dict.items()}
+                    raise RuntimeError(f'Non-finite validation loss at epoch={epoch} step={step}; sources={sources}; '
+                                       f'loss={output.loss}; components={components}')
                 validation.append(float(output.loss.detach().cpu()))
                 if step % args.log_every == 0:
                     print(json.dumps({'epoch': epoch, 'phase': 'validation', 'batch': step,
