@@ -50,6 +50,7 @@ def main():
     parser.add_argument('--num-workers', type=int, default=2)
     parser.add_argument('--max-train-batches', type=int, default=0, help='0 means all batches')
     parser.add_argument('--max-val-batches', type=int, default=0, help='0 means all batches')
+    parser.add_argument('--log-every', type=int, default=25)
     parser.add_argument('--num-queries', type=int, default=200)
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--resume', type=Path)
@@ -168,6 +169,9 @@ def main():
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 0.1)
                 optimizer.step(); optimizer.zero_grad(set_to_none=True)
             losses.append(float(output.loss.detach().cpu()))
+            if step % args.log_every == 0:
+                print(json.dumps({'epoch': epoch, 'phase': 'train', 'batch': step,
+                                  'mean_loss_so_far': sum(losses) / len(losses)}), flush=True)
             if args.max_train_batches and step >= args.max_train_batches:
                 break
         if len(losses) % args.accumulate:
@@ -182,6 +186,9 @@ def main():
                 if output.loss is None or not torch.isfinite(output.loss):
                     raise RuntimeError(f'Non-finite validation loss at epoch={epoch} step={step}: {output.loss}')
                 validation.append(float(output.loss.detach().cpu()))
+                if step % args.log_every == 0:
+                    print(json.dumps({'epoch': epoch, 'phase': 'validation', 'batch': step,
+                                      'mean_loss_so_far': sum(validation) / len(validation)}), flush=True)
                 if args.max_val_batches and step >= args.max_val_batches:
                     break
         record = {'epoch': epoch, 'train_loss': sum(losses) / len(losses), 'validation_loss': sum(validation) / len(validation),
