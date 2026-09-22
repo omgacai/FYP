@@ -195,6 +195,8 @@ def main() -> None:
             with Image.open(image_path) as image:
                 image_size = image.size
             rooms, parser_backend = source_rooms(svg_path, image_size, args.cubigraph_repo.expanduser().resolve())
+            if not rooms:
+                raise ValueError(f"No source-derived rooms in {svg_path}")
             room_ids = {room["room_id"] for room in rooms}
             edges = canonical_edges(load_adjacency(graph_path), room_ids)
             output_rows.append({
