@@ -28,9 +28,30 @@ mkdir -p "$EGTR_RUN/logs"
 export PYTHONPATH="$HOME/aigc-storage/fyp-envs/egtr-deps-py312-v1"
 cd "$REPO_DIR"
 
+# Slurm starts a non-login shell, which often omits a user-installed Node from
+# PATH even when `node` works interactively.  The evaluator is dependency-free
+# JavaScript, so use an explicit override first and otherwise look in the
+# conventional user locations.
+NODE_BIN="${NODE_BIN:-}"
+if [[ -z "$NODE_BIN" ]]; then
+  for candidate in "$(command -v node 2>/dev/null || true)" \
+                   "$(command -v nodejs 2>/dev/null || true)" \
+                   "$HOME/.local/bin/node" "$HOME/bin/node" "$HOME/.nvm/versions/node"/*/bin/node; do
+    if [[ -n "$candidate" && -x "$candidate" ]]; then
+      NODE_BIN="$candidate"
+      break
+    fi
+  done
+fi
+[[ -n "$NODE_BIN" && -x "$NODE_BIN" ]] || {
+  echo "Node.js was not found. Set NODE_BIN to an executable node path (command -v node) before submitting." >&2
+  exit 2
+}
+echo "Node evaluator: $NODE_BIN ($($NODE_BIN --version))"
+
 "$VENV_DIR/bin/python" -u experiments/egtr_calibration/infer_finetuned.py \
   --root "$EGTR_RUN" --checkpoint "$FINETUNED_CHECKPOINT" --model-config "$FINETUNED_CONFIG" \
   --object-threshold "$OBJECT_THRESHOLD" --relation-threshold "$RELATION_THRESHOLD"
-node experiments/egtr_calibration/evaluate.mjs "$EGTR_RUN" --prediction-dir predictions/egtr_finetuned
+"$NODE_BIN" experiments/egtr_calibration/evaluate.mjs "$EGTR_RUN" --prediction-dir predictions/egtr_finetuned
 "$VENV_DIR/bin/python" experiments/egtr_calibration/preview.py --root "$EGTR_RUN" --prediction-dir predictions/egtr_finetuned
 "$VENV_DIR/bin/python" experiments/egtr_calibration/report.py --root "$EGTR_RUN" --prediction-dir predictions/egtr_finetuned
