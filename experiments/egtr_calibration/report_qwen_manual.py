@@ -71,7 +71,8 @@ def metric_table(metrics: dict[str, Any] | None) -> str:
     ) + "</table>" + (
         f"<p class='muted'>Matched type accuracy: {scalar(metrics.get('type_accuracy'))}; "
         f"mean matched IoU: {scalar(metrics.get('mean_matched_iou'))}; "
-        f"edit cost: {scalar(metrics.get('aligned_edit_cost'))}.</p>"
+        f"aligned graph edit cost: {scalar(metrics.get('aligned_edit_cost'))}; "
+        f"normalized edit cost: {scalar(metrics.get('normalized_edit_cost'))}.</p>"
     )
 
 
