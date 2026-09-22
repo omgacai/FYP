@@ -37,6 +37,8 @@ python3 retrieval_app/scripts/export_egtr_adapter.py \
 
 Inspect the printed counts, `errors_smoke.jsonl`, and the resulting `train.json`, `val.json`, `rel.json`, and `label_map.json` before removing `--limit 10`. The adapter's `test.json` is intentionally empty: evaluation is the separate manual-20 gold benchmark.
 
+Before full fitting, run `audit_egtr_adapter.py` against the completed adapter. Then run `smoke_finetune.py` on one **train** batch. It initializes 10 room classes and two predicates, transfers only same-shaped released-VG checkpoint tensors, and proves a GPU forward, backward, finite-gradient, and optimizer update. It deliberately does not use manual-20 records or write model weights.
+
 ## Current data and execution status
 
 The local calibration snapshot is `cubicasa_eval/calibration/egtr_v2`:
