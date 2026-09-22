@@ -103,7 +103,7 @@ def main() -> None:
     parser.add_argument("--mode", choices=("zero", "few"), default="zero")
     parser.add_argument("--representation", choices=("semantic", "spatial"), default="semantic")
     parser.add_argument("--task", choices=("direct", "fixed_node_correction"), default="direct")
-    parser.add_argument("--prompt-version", choices=("baseline", "cubicasa_fewshot_v1"), default="baseline")
+    parser.add_argument("--prompt-version", choices=("baseline", "cubicasa_fewshot_v1", "edge_recall_v1"), default="baseline")
     parser.add_argument("--graph-context", choices=("none", "silver"), default="none", help="Whether to give Qwen the CubiGraph candidate as a correction input.")
     parser.add_argument("--support-manifest", type=Path, help="JSONL with image_path and verified inline graph objects.")
     parser.add_argument("--exclude-plan-id", action="append", default=[], help="Repeatable plan ID exclusion, e.g. for few-shot support plans.")

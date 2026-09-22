@@ -29,12 +29,24 @@ Never connect rooms merely because they are nearby, overlap in their bounding bo
 can be reached through another room.
 
 """
+    if prompt_version == "edge_recall_v1":
+        prompt += """Before writing JSON, silently inspect every plausible pair of declared rooms.
+Add an edge for every visibly supported direct relationship: use connected_by_door for a
+visible traversable door, open_connected for a direct unobstructed opening, and
+adjacent_to for rooms that visibly share a boundary without direct access. Do not omit a
+visible shared boundary or doorway merely because the room type is uncertain. Still do
+not invent hidden connections, connect rooms through an intervening room, or assign more
+than one relation to an unordered room pair.
+
+"""
     if spatial:
         prompt += """Use a normalised 1000 by 1000 canvas: x increases left-to-right and y increases top-to-bottom.
 For every room, provide an approximate axis-aligned bbox [x0, y0, x1, y1] and centroid [x, y].
 These coordinates must locate the visible room in the input image. Do not output SVG, polygons, or wall coordinates.
 
 """
+    if prompt_version not in {"baseline", "cubicasa_fewshot_v1", "edge_recall_v1"}:
+        raise ValueError(f"Unsupported prompt version: {prompt_version}")
     return prompt + "Use this exact JSON shape:\n" + graph_schema(spatial=spatial)
 
 

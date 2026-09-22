@@ -82,3 +82,22 @@ The runnable prompt functions are in
 [`retrieval_app/vlm_graph/prompts.py`](../../retrieval_app/vlm_graph/prompts.py).
 The strict Pydantic and graph checks are in
 [`retrieval_app/vlm_graph/schema.py`](../../retrieval_app/vlm_graph/schema.py).
+
+## Edge-recall follow-up (`edge_recall_v1`)
+
+The original baseline remains unchanged. The follow-up adds this paragraph after
+the room/edge rules, before the spatial instructions:
+
+```text
+Before writing JSON, silently inspect every plausible pair of declared rooms.
+Add an edge for every visibly supported direct relationship: use connected_by_door for a
+visible traversable door, open_connected for a direct unobstructed opening, and
+adjacent_to for rooms that visibly share a boundary without direct access. Do not omit a
+visible shared boundary or doorway merely because the room type is uncertain. Still do
+not invent hidden connections, connect rooms through an intervening room, or assign more
+than one relation to an unordered room pair.
+```
+
+Use it only in a new run named `qwen3vl8b_manual20_direct_spatial_edge_recall_v1`.
+It may improve edge recall while reducing precision; compare both metrics and
+JSON-validity coverage against the original baseline.
