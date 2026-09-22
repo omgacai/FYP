@@ -49,8 +49,22 @@ def main():
         raise ValueError('Room category IDs must be contiguous and one-based.')
     if relation_categories != ['adjacent_to', 'direct_access']:
         raise ValueError(f'Unexpected primary relation labels: {relation_categories}')
+    class CubiCasaVGDataset(VGDataset):
+        """Adapter-aware replacement for EGTR's upstream hard-coded 50 channels."""
+        def _get_rel_tensor(self, rel_tensor):
+            relation_count = len(self.rel_categories)
+            rel = torch.zeros([self.num_object_queries, self.num_object_queries, relation_count])
+            if rel_tensor.size == 0:
+                return rel
+            indices = torch.as_tensor(rel_tensor, dtype=torch.long).T
+            indices[-1, :] -= 1  # COCO adapter relation IDs include no_relation=0.
+            if indices.shape[0] != 3 or indices.min() < 0 or indices[2].max() >= relation_count:
+                raise ValueError(f'Invalid adapter relation indices: {indices}')
+            rel[indices[0, :], indices[1, :], indices[2, :]] = 1.0
+            return rel
+
     extractor = DeformableDetrFeatureExtractor(size=800, max_size=1333)
-    dataset = VGDataset(str(args.data), extractor, 'train', num_object_queries=args.num_queries)
+    dataset = CubiCasaVGDataset(str(args.data), extractor, 'train', num_object_queries=args.num_queries)
     pixels, target = dataset[0]
     # Transformers 4.44 no longer exposes the old feature extractor's
     # pad_and_create_pixel_mask helper. The smoke test is intentionally batch
