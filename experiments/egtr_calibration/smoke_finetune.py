@@ -58,6 +58,12 @@ def main():
     encoding = {'pixel_values': pixels.unsqueeze(0),
                 'pixel_mask': torch.ones((1, pixels.shape[-2], pixels.shape[-1]), dtype=torch.long)}
     labels = [{key: value.cuda() for key, value in target.items()}]
+    target_rel = labels[0]['rel']
+    nonzero_relations = target_rel.nonzero()
+    if target_rel.shape != (args.num_queries, args.num_queries, len(relation_categories)):
+        raise ValueError(f'Unexpected target relation tensor shape: {tuple(target_rel.shape)}')
+    if nonzero_relations.numel() and int(nonzero_relations[:, 2].max()) >= len(relation_categories):
+        raise ValueError(f'Relation channel exceeds vocabulary: {nonzero_relations[:, 2].unique().tolist()}')
     original_create_model = deformable_detr.create_model
     def create_without_download(*positional, **kwargs):
         kwargs['pretrained'] = False
@@ -81,6 +87,15 @@ def main():
     model.cuda().train()
     optimizer = torch.optim.AdamW(model.parameters(), lr=2e-6, weight_decay=1e-4)
     optimizer.zero_grad(set_to_none=True)
+    with torch.inference_mode():
+        preview = model(pixel_values=encoding['pixel_values'].cuda(), pixel_mask=encoding['pixel_mask'].cuda(),
+                        output_attentions=False, output_attention_states=True, output_hidden_states=True)
+    if preview.pred_rel.shape[-1] != len(relation_categories):
+        raise ValueError(f'Model relation channels do not match adapter: {tuple(preview.pred_rel.shape)}')
+    print(json.dumps({'target_relation_shape': list(target_rel.shape),
+                      'target_relation_channels': nonzero_relations[:, 2].unique().tolist() if nonzero_relations.numel() else [],
+                      'model_relation_shape': list(preview.pred_rel.shape)}, indent=2), flush=True)
+    del preview
     output = model(pixel_values=encoding['pixel_values'].cuda(), pixel_mask=encoding['pixel_mask'].cuda(), labels=labels,
                    output_attentions=False, output_attention_states=True, output_hidden_states=True)
     if output.loss is None or not torch.isfinite(output.loss):
