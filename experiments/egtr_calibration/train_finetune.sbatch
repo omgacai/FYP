@@ -23,6 +23,9 @@ EGTR_DATA="${EGTR_DATA:-$HOME/vlm/data/derived/egtr_finetune_v1/cubicasa_visual_
 EPOCHS="${EPOCHS:-1}"
 MAX_TRAIN_BATCHES="${MAX_TRAIN_BATCHES:-0}"
 MAX_VAL_BATCHES="${MAX_VAL_BATCHES:-0}"
+BATCH_SIZE="${BATCH_SIZE:-1}"
+ACCUMULATE="${ACCUMULATE:-4}"
+NUM_WORKERS="${NUM_WORKERS:-2}"
 export PYTHONPATH="$HOME/aigc-storage/fyp-envs/egtr-deps-py312-v1"
 cd "$HOME/vlm/code/FYP"
 extra_args=()
@@ -30,5 +33,5 @@ if [[ "$MAX_TRAIN_BATCHES" != 0 ]]; then extra_args+=(--max-train-batches "$MAX_
 if [[ "$MAX_VAL_BATCHES" != 0 ]]; then extra_args+=(--max-val-batches "$MAX_VAL_BATCHES"); fi
 "$EGTR_PYTHON" -u experiments/egtr_calibration/train_finetune.py \
   --data "$EGTR_DATA" --config "$EGTR_CONFIG" --checkpoint "$EGTR_CHECKPOINT" \
-  --output "$TRAIN_OUT" --epochs "$EPOCHS" --batch-size 1 --accumulate 4 \
-  --num-workers 2 --log-every 25 "${extra_args[@]}"
+  --output "$TRAIN_OUT" --epochs "$EPOCHS" --batch-size "$BATCH_SIZE" --accumulate "$ACCUMULATE" \
+  --num-workers "$NUM_WORKERS" --log-every 25 "${extra_args[@]}"
