@@ -32,9 +32,13 @@ class CubiCasa5KParser(FloorplanParser):
         self.project_root = Path(__file__).resolve().parents[2]
         self.repo = self.project_root / 'third_party' / 'CubiCasa5k'
         self.checkpoint = self.repo / 'model_best_val_loss_var.pkl'
+        self._model = None
 
     def _load_model(self):
         import torch
+
+        if self._model is not None:
+            return self._model
 
         if not self.repo.exists() or not self.checkpoint.exists():
             raise FileNotFoundError(
@@ -56,7 +60,8 @@ class CubiCasa5KParser(FloorplanParser):
         model.upsample = torch.nn.ConvTranspose2d(44, 44, kernel_size=4, stride=4)
         checkpoint = torch.load(self.checkpoint, map_location='cpu')
         model.load_state_dict(checkpoint['model_state'])
-        return model.eval()
+        self._model = model.eval()
+        return self._model
 
     @staticmethod
     def _patch_scipy_mode() -> None:
