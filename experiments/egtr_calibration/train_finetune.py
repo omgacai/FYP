@@ -9,6 +9,7 @@ import hashlib
 import importlib
 import json
 import random
+import shutil
 import time
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -170,6 +171,10 @@ def main():
         optimizer.load_state_dict(saved['optimizer_state'])
         start_epoch, best_validation = saved['epoch'] + 1, saved['best_validation_loss']
     args.output.mkdir(parents=True, exist_ok=False)
+    if args.resume:
+        # Carry the prior validation winner forward. A resumed run may improve
+        # it, but if it does not, its output still has the selected checkpoint.
+        shutil.copy2(args.resume, args.output / 'best.pt')
     config.save_pretrained(args.output / 'model_config')
     metadata = {'created_at': datetime.now(timezone.utc).isoformat(), 'purpose': 'CubiCasa silver-supervision fine-tuning',
                 'manual_gold_used': False, 'data': str(args.data.resolve()), 'data_rel_sha256': digest(args.data / 'rel.json'),
