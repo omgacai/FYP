@@ -41,6 +41,11 @@ def main():
         from model.egtr import DetrForSceneGraphGeneration
     finally:
         file_utils.is_torch_cuda_available = original_cuda_check
+    # The upstream try/except calls its PyTorch GPU fallback "cpu" and prints
+    # that message for every attention call. Install the same fallback directly.
+    def quiet_attention_fallback(value, spatial_shapes, level_start_index, sampling_locations, attention_weights, im2col_step):
+        return deformable_detr.ms_deform_attn_core_pytorch(value, spatial_shapes, sampling_locations, attention_weights)
+    deformable_detr.MultiScaleDeformableAttentionFunction.apply = staticmethod(quiet_attention_fallback)
     train_json = json.loads((args.data / 'train.json').read_text())
     relation_json = json.loads((args.data / 'rel.json').read_text())
     categories = train_json['categories']

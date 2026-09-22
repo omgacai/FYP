@@ -84,6 +84,12 @@ def main():
     finally:
         file_utils.is_torch_cuda_available = original_cuda_check
 
+    # Use the upstream PyTorch attention fallback directly. It executes on the
+    # CUDA tensors but avoids EGTR's repeated, misleading "running on cpu" log.
+    def quiet_attention_fallback(value, spatial_shapes, level_start_index, sampling_locations, attention_weights, im2col_step):
+        return deformable_detr.ms_deform_attn_core_pytorch(value, spatial_shapes, sampling_locations, attention_weights)
+    deformable_detr.MultiScaleDeformableAttentionFunction.apply = staticmethod(quiet_attention_fallback)
+
     class CubiCasaVGDataset(VGDataset):
         def _get_rel_tensor(self, rel_tensor):
             channels = len(self.rel_categories)
