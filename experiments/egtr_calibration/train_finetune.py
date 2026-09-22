@@ -86,7 +86,7 @@ def main():
         from data.visual_genome import VGDataset
         from model import deformable_detr
         from model.deformable_detr import DeformableDetrFeatureExtractor
-        from model.egtr import DetrForSceneGraphGeneration
+        from model.egtr import DetrForSceneGraphGeneration, SceneGraphGenerationLoss
     finally:
         file_utils.is_torch_cuda_available = original_cuda_check
 
@@ -95,6 +95,25 @@ def main():
     def quiet_attention_fallback(value, spatial_shapes, level_start_index, sampling_locations, attention_weights, im2col_step):
         return deformable_detr.ms_deform_attn_core_pytorch(value, spatial_shapes, sampling_locations, attention_weights)
     deformable_detr.MultiScaleDeformableAttentionFunction.apply = staticmethod(quiet_attention_fallback)
+
+    # EGTR samples relation negatives relative to the number of positive
+    # relation triples.  A legitimate floor plan may contain room boxes but no
+    # silver graph edge; upstream then takes a mean over an empty tensor and
+    # returns NaN. Retain its object-detection supervision, but assign zero
+    # relation/uncertainty loss to that individual plan.
+    original_relation_loss = SceneGraphGenerationLoss._loss_relations
+    def safe_relation_loss(self, pred_rel, target_rel, matching_cost, *sampling):
+        if not bool(target_rel.any()):
+            return pred_rel.sum().reshape(1) * 0.0
+        return original_relation_loss(self, pred_rel, target_rel, matching_cost, *sampling)
+    SceneGraphGenerationLoss._loss_relations = safe_relation_loss
+
+    original_uncertainty_loss = SceneGraphGenerationLoss.loss_uncertainty
+    def safe_uncertainty_loss(self, outputs, targets, indices, matching_costs, num_boxes):
+        if not any(bool(target['rel'].any()) for target in targets):
+            return {'uncertainty': outputs['pred_rel'].sum() * 0.0}
+        return original_uncertainty_loss(self, outputs, targets, indices, matching_costs, num_boxes)
+    SceneGraphGenerationLoss.loss_uncertainty = safe_uncertainty_loss
 
     class CubiCasaVGDataset(VGDataset):
         def _get_rel_tensor(self, rel_tensor):
