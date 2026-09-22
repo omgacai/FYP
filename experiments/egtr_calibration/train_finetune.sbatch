@@ -3,6 +3,8 @@
 # This job trains solely on the silver train/validation adapter; manual gold is absent.
 #SBATCH --job-name=cubicasa-egtr
 #SBATCH --partition=gpu
+# Request one node only; the nodelist below is the compatible candidate pool.
+#SBATCH --nodes=1
 # The shared PyTorch installation is x86-64. xgph0–xgph9 are the SOC
 # x86-64 A100-80 nodes, so leave Slurm ten compatible choices without risking
 # an ARM allocation (for example, xgpj0).
