@@ -49,6 +49,8 @@ def main():
             raise ValueError(f'{split}: relation image IDs do not match COCO image IDs')
         for image_id, triples in rel[split].items():
             count = len(by_image[int(image_id)])
+            if count == 0:
+                raise ValueError(f'{split}: image {image_id} has no room annotations')
             for subject, obj, predicate in triples:
                 if not (0 <= subject < count and 0 <= obj < count and subject != obj and predicate in (1, 2)):
                     raise ValueError(f'{split}: invalid relation triple for image {image_id}: {[subject, obj, predicate]}')
