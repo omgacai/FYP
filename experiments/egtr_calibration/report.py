@@ -9,6 +9,7 @@ from pathlib import Path
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--root',type=Path,required=True)
+    p.add_argument('--prediction-dir',default='predictions/egtr_frozen')
     args=p.parse_args()
     root=args.root
     rows=json.loads((root/'manifest.json').read_text())
@@ -21,7 +22,7 @@ def main():
         plans.append({'id':row['plan_id'],'image':'data:'+ (mimetypes.guess_type(image.name)[0] or 'image/png')+';base64,'+base64.b64encode(image.read_bytes()).decode(),
             'reference':read(root/'annotations'/f"{row['plan_id']}.graph.json"),
             'raw':read(root/'raw'/f"{row['plan_id']}.json"),
-            'prediction':read(root/'predictions/egtr_frozen'/f"{row['plan_id']}.json"),
+            'prediction':read(root/args.prediction_dir/f"{row['plan_id']}.json"),
             'evaluation':reports.get(row['plan_id'])})
     template=Path(__file__).with_name('report_template.html').read_text()
     payload=json.dumps({'plans':plans,'metrics':metrics,'run':read(root/'run.json'),'status':read(root/'status.json')}).replace('<','\\u003c')

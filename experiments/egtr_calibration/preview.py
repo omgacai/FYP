@@ -36,6 +36,7 @@ def render(image_path, nodes, edges, title, output):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--root', required=True, type=Path)
+    p.add_argument('--prediction-dir', default='predictions/egtr_frozen')
     args=p.parse_args()
     directory=args.root/'overlays'
     directory.mkdir(exist_ok=True)
@@ -58,7 +59,7 @@ def main():
                         continue
                     nodes.append({'id':f'q{obj["query"]}', 'type':f'{obj["label"]} {obj["score"]:.2f}', 'bbox_xyxy':box})
                 render(image,nodes,[],f'{plan}: raw EGTR objects (top 20, score >= .3; display only)',directory/f'{plan}_raw.png')
-        prediction_path=args.root/'predictions/egtr_frozen'/f'{plan}.json'
+        prediction_path=args.root/args.prediction_dir/f'{plan}.json'
         if prediction_path.exists():
             prediction=json.loads(prediction_path.read_text())
             if prediction.get('valid'):
