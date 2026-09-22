@@ -3,7 +3,6 @@
 # This job trains solely on the silver train/validation adapter; manual gold is absent.
 #SBATCH --job-name=cubicasa-egtr
 #SBATCH --partition=gpu
-#SBATCH --nodelist=xgph1
 #SBATCH --gres=gpu:a100-80:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=48G
