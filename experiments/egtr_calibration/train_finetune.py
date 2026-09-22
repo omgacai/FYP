@@ -9,6 +9,8 @@ import hashlib
 import importlib
 import json
 import random
+import time
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 import platform
@@ -194,8 +196,21 @@ def main():
                    if parameter.grad is not None and not torch.isfinite(parameter.grad).all()]
         return invalid
 
+    def scalar_metrics(output):
+        """Return every scalar EGTR loss/diagnostic for JSONL experiment logs."""
+        metrics = {"total_loss": float(output.loss.detach().cpu())}
+        for name, value in output.loss_dict.items():
+            if value.numel() == 1:
+                metrics[name] = float(value.detach().cpu())
+        return metrics
+
+    def means(sums, count):
+        return {name: value / count for name, value in sorted(sums.items())} if count else {}
+
     for epoch in range(start_epoch, args.epochs):
-        model.train(); optimizer.zero_grad(set_to_none=True); losses = []
+        epoch_started = time.perf_counter()
+        torch.cuda.reset_peak_memory_stats()
+        model.train(); optimizer.zero_grad(set_to_none=True); losses = []; train_sums = defaultdict(float)
         for step, batch in enumerate(train_loader, start=1):
             sources = batch_sources(batch, train_data)
             pixels, mask, labels = move(batch)
@@ -213,16 +228,20 @@ def main():
             if step % args.accumulate == 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 0.1)
                 optimizer.step(); optimizer.zero_grad(set_to_none=True)
-            losses.append(float(output.loss.detach().cpu()))
+            batch_metrics = scalar_metrics(output)
+            losses.append(batch_metrics["total_loss"])
+            for name, value in batch_metrics.items(): train_sums[name] += value
             if step % args.log_every == 0:
                 print(json.dumps({'epoch': epoch, 'phase': 'train', 'batch': step,
-                                  'mean_loss_so_far': sum(losses) / len(losses)}), flush=True)
+                                  'mean_loss_so_far': sum(losses) / len(losses),
+                                  'metrics': means(train_sums, len(losses)),
+                                  'learning_rate': optimizer.param_groups[0]['lr']}), flush=True)
             if args.max_train_batches and step >= args.max_train_batches:
                 break
         if len(losses) % args.accumulate:
             torch.nn.utils.clip_grad_norm_(model.parameters(), 0.1)
             optimizer.step(); optimizer.zero_grad(set_to_none=True)
-        model.eval(); validation = []
+        model.eval(); validation = []; validation_sums = defaultdict(float)
         with torch.inference_mode():
             for step, batch in enumerate(val_loader, start=1):
                 sources = batch_sources(batch, val_data)
@@ -233,14 +252,22 @@ def main():
                     components = {name: float(value.detach().cpu()) for name, value in output.loss_dict.items()}
                     raise RuntimeError(f'Non-finite validation loss at epoch={epoch} step={step}; sources={sources}; '
                                        f'loss={output.loss}; components={components}')
-                validation.append(float(output.loss.detach().cpu()))
+                batch_metrics = scalar_metrics(output)
+                validation.append(batch_metrics["total_loss"])
+                for name, value in batch_metrics.items(): validation_sums[name] += value
                 if step % args.log_every == 0:
                     print(json.dumps({'epoch': epoch, 'phase': 'validation', 'batch': step,
-                                      'mean_loss_so_far': sum(validation) / len(validation)}), flush=True)
+                                      'mean_loss_so_far': sum(validation) / len(validation),
+                                      'metrics': means(validation_sums, len(validation))}), flush=True)
                 if args.max_val_batches and step >= args.max_val_batches:
                     break
         record = {'epoch': epoch, 'train_loss': sum(losses) / len(losses), 'validation_loss': sum(validation) / len(validation),
-                  'train_batches': len(losses), 'validation_batches': len(validation)}
+                  'train_batches': len(losses), 'validation_batches': len(validation),
+                  'train_metrics': means(train_sums, len(losses)), 'validation_metrics': means(validation_sums, len(validation)),
+                  'learning_rate': optimizer.param_groups[0]['lr'],
+                  'elapsed_seconds': time.perf_counter() - epoch_started,
+                  'train_batches_per_second': len(losses) / (time.perf_counter() - epoch_started),
+                  'peak_gpu_memory_gib': torch.cuda.max_memory_allocated() / (1024 ** 3)}
         print(json.dumps(record), flush=True); metrics_file.write(json.dumps(record) + '\n'); metrics_file.flush()
         best_validation = min(best_validation, record['validation_loss'])
         payload = {'epoch': epoch, 'model_state': model.state_dict(), 'optimizer_state': optimizer.state_dict(),
