@@ -93,7 +93,7 @@ def initialize(source, runs, name, note):
 
 def snapshot_code(root, stage):
     destination = root / 'provenance' / stage / 'code'
-    files = list(HERE.glob('*.py')) + list(HERE.glob('*.mjs')) + list(HERE.glob('*.html')) + [REPO / 'review_react/src/graphEvaluation.js', REPO / 'retrieval_app/scripts/build_cubicasa_egtr_corpus.py', REPO / 'floorplan_app/pipeline/graph_extractor.py']
+    files = list(HERE.glob('*.py')) + list(HERE.glob('*.mjs')) + list(HERE.glob('*.html')) + [REPO / 'review_react/src/graphEvaluation.js', REPO / 'retrieval_app/scripts/build_cubicasa_egtr_corpus.py', REPO / 'retrieval_app/scripts/run_qwen_graph.py', REPO / 'retrieval_app/scripts/convert_qwen_to_manual_graph.py', REPO / 'floorplan_app/pipeline/graph_extractor.py']
     hashes = {}
     for source in files:
         relative = source.relative_to(REPO)

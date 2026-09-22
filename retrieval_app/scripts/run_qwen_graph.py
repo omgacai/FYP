@@ -218,6 +218,10 @@ def main() -> None:
                 "max_new_tokens": args.max_new_tokens,
                 "shard_index": args.shard_index,
                 "num_shards": args.num_shards,
+                # Persist the exact prompt ingredients so a run can be
+                # inspected without reconstructing a moving codebase.
+                "prompt_system": messages[0]["content"],
+                "prompt_messages": messages,
                 "decoded_at": datetime.now(timezone.utc).isoformat(),
                 "raw_output": raw_output,
                 "json_repair_outputs": [],
