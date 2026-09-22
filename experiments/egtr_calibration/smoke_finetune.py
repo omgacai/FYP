@@ -52,7 +52,11 @@ def main():
     extractor = DeformableDetrFeatureExtractor(size=800, max_size=1333)
     dataset = VGDataset(str(args.data), extractor, 'train', num_object_queries=args.num_queries)
     pixels, target = dataset[0]
-    encoding = extractor.pad_and_create_pixel_mask([pixels], return_tensors='pt')
+    # Transformers 4.44 no longer exposes the old feature extractor's
+    # pad_and_create_pixel_mask helper. The smoke test is intentionally batch
+    # size one, so the resized tensor needs no padding and its full mask is 1.
+    encoding = {'pixel_values': pixels.unsqueeze(0),
+                'pixel_mask': torch.ones((1, pixels.shape[-2], pixels.shape[-1]), dtype=torch.long)}
     labels = [{key: value.cuda() for key, value in target.items()}]
     original_create_model = deformable_detr.create_model
     def create_without_download(*positional, **kwargs):
