@@ -11,7 +11,23 @@ Identify enclosed rooms from the supplied floorplan image. Use only these room t
 bedroom, bathroom, kitchen, living_room, dining_room, corridor, storage, balcony,
 entrance, garage, outdoor, other.
 
-Use adjacent_to only when two rooms visibly share a boundary. Use connected_by_door
+"""
+    if prompt_version == "edge_recall_json_v1":
+        prompt += """Use adjacent_to when two rooms visibly share a boundary. Use connected_by_door
+when a visible doorway or door swing connects the rooms. open_connected means two distinct
+room zones have a direct, unobstructed opening without a door. Silently inspect every
+plausible pair of declared rooms and include every visible relationship; do not leave out
+a visible shared boundary, doorway, or open passage. Do not infer hidden doors, connect
+rooms through an intervening room, or assign more than one relation to an unordered pair.
+Room IDs must be unique and every edge must refer to two declared rooms.
+
+Before answering, silently check that the result is one parseable JSON object: use double
+quotes around every key and string, commas between array/object items, no trailing commas,
+and no text before or after the closing brace.
+
+"""
+    else:
+        prompt += """Use adjacent_to only when two rooms visibly share a boundary. Use connected_by_door
 only when a visible doorway or door swing connects the two rooms. Do not infer hidden
 doors. open_connected means two distinct room zones have a direct, unobstructed opening
 without a door. Every unordered pair may have at most one edge. When uncertain, omit
@@ -45,7 +61,7 @@ For every room, provide an approximate axis-aligned bbox [x0, y0, x1, y1] and ce
 These coordinates must locate the visible room in the input image. Do not output SVG, polygons, or wall coordinates.
 
 """
-    if prompt_version not in {"baseline", "cubicasa_fewshot_v1", "edge_recall_v1"}:
+    if prompt_version not in {"baseline", "cubicasa_fewshot_v1", "edge_recall_v1", "edge_recall_json_v1"}:
         raise ValueError(f"Unsupported prompt version: {prompt_version}")
     return prompt + "Use this exact JSON shape:\n" + graph_schema(spatial=spatial)
 

@@ -101,3 +101,15 @@ than one relation to an unordered room pair.
 Use it only in a new run named `qwen3vl8b_manual20_direct_spatial_edge_recall_v1`.
 It may improve edge recall while reducing precision; compare both metrics and
 JSON-validity coverage against the original baseline.
+
+## Complete-edge and JSON self-check retry (`edge_recall_json_v1`)
+
+This follow-up removes the baseline phrase “When uncertain, omit the edge rather
+than guessing.” It instead asks Qwen to enumerate every *visible* room relation,
+and adds a JSON syntax self-check. It is still not decoder-level enforcement:
+Pydantic validates the completed response and the runner can make two text-only
+repair attempts. Use this exact run name:
+
+```text
+qwen3vl8b_manual20_direct_spatial_edge_recall_json_v1
+```
