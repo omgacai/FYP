@@ -45,7 +45,7 @@ After running CubiGraph, add these fields to each record:
 
 `gold` graph provenance is reserved for a manually verified/dataset-verified topology graph. A CubiGraph result from SVG, parser, or VLM output is `silver`.
 
-## Generate deterministic QA candidates from manual graphs
+## Generate reproducibly sampled QA candidates from manual graphs
 
 The QA generator reads a directory of `floorplan-manual-graph/2` annotations and
 writes a CSV of review-ready question/answer candidates. Answers are computed
@@ -56,16 +56,25 @@ floor-plan image before the QA set is frozen.
 ```bash
 python3 -m retrieval_app.scripts.generate_manual_graph_qa \
   --input-dir cubicasa_benchmark/annotations \
-  --output cubicasa_benchmark/questions/manual20_qa_v1.csv \
-  --per-plan 5
+  --output cubicasa_benchmark/questions/manual20_qa_v2_candidate.csv \
+  --per-plan 5 \
+  --selection-seed 20261006 \
+  --benchmark-version v2
 ```
 
-The default target is five diverse questions per plan: D0 count, D1 direct
-relation, D2 relative position, D3 compound access, and D4 shortest access
-path. It does **not** turn absent edges into `no`, because the current Manual20
+The generator targets exactly five questions per plan: one each from `count`,
+`direct_access`, `relative_position`, `compound_access`, and
+`shortest_access_path` (D0–D4 respectively). One valid candidate is sampled
+within each fixed category using the recorded seed. `adjacency` candidates are
+retained by the generator for future experiments but are not substituted when a
+plan has no direct-access candidate; the run reports that plan as incomplete
+instead. It does **not** turn absent edges into `no`, because the current Manual20
 records have `all_pairs_reviewed: false`. Add `--include-unknown` only when you
 want explicit incomplete-evidence examples. Every generated row has
 `needs_human_review=true`; review and freeze the CSV before running QA models.
+For shortest-path questions, the generator considers every labelled room pair
+and chooses the largest supported transition count; a direct path with answer
+`1` is used when that is all the reviewed graph supports.
 
 ## Run and evaluate the Manual20 QA pilot
 
@@ -97,6 +106,28 @@ export QA_GRAPH_DIR="$QA_ANNOTATIONS_DIR"
 export QA_GRAPH_SOURCE=gold_manual
 sbatch --array=0-3 slurm/qwen3vl_qa.sbatch
 ```
+
+### Evidence-and-reasoning prompt experiment
+
+For a fresh, separately named run, use the versioned prompt below. It asks for
+the scored answer plus cited graph node/edge IDs and one concise reasoning
+sentence. The runner preserves those fields and records whether the cited graph
+IDs exist; scoring still uses only the normalized `answer` field. Do not mix
+these outputs with the answer-only baseline.
+
+```bash
+export QA_QUESTIONS=~/vlm/data/manual20/questions/manual20_qa_v2_candidate.csv
+export QA_OUTPUT_DIR=~/vlm/outputs/manual20_qa_v2_evidence/image_gold
+export QA_CONDITION=image_graph
+export QA_GRAPH_DIR="$QA_ANNOTATIONS_DIR"
+export QA_GRAPH_SOURCE=gold_manual
+export QA_PROMPT_VERSION=evidence_reasoning_v1
+sbatch --array=0-3 slurm/qwen3vl_qa.sbatch
+```
+
+`answer_only_v1` remains the default prompt version. `evidence_reasoning_v1`
+uses a larger 160-token completion limit through the Slurm launcher to leave
+room for the citations and explanation.
 
 For Qwen/CubiGraph/EGTR graph conditions, set `QA_GRAPH_DIR` to a directory of
 canonical `<plan_id>.graph.json` files and change `QA_GRAPH_SOURCE`, then submit

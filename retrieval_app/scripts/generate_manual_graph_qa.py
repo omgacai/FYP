@@ -19,15 +19,24 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import random
 from collections import Counter, deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
 
-GENERATOR_VERSION = "manual-graph-qa/1"
+GENERATOR_VERSION = "manual-graph-qa/2"
 ACCESS_RELATIONS = {"connected_by_door", "open_connected"}
 COUNTABLE_TYPES = {"Bedroom", "Bath", "Kitchen", "LivingRoom", "Dining", "Corridor", "Entry"}
+SELECTED_CATEGORIES = (
+    "count",
+    "direct_access",
+    "relative_position",
+    "compound_access",
+    "shortest_access_path",
+)
+SELECTION_DIFFICULTIES = ("D0", "D1", "D2", "D3", "D4")
 TYPE_PLURALS = {
     "Bedroom": "bedrooms",
     "Bath": "bathrooms",
@@ -88,6 +97,7 @@ CSV_FIELDS = [
     "source_rule",
     "annotation_file",
     "generator_version",
+    "selection_seed",
     "needs_human_review",
 ]
 
@@ -288,64 +298,66 @@ def generate_candidates(plan: Plan, include_unknown: bool) -> dict[str, list[dic
                 source_rule=f"exists_direct_access(anchor={anchor.id},type={target_type})",
             ))
 
-    # D4 — shortest access paths.  Only create them if the annotation's own
-    # connectivity review passed, so a disconnected/incomplete topology does
-    # not masquerade as an answerable navigation question.
-    if plan.connectivity_passed:
-        entries = [room for room in plan.rooms if room.room_type == "Entry"]
-        targets = [room for room in plan.rooms if room.room_type in {"Bedroom", "Bath", "Kitchen"}]
-        for entry in entries:
-            for target in targets:
-                result = shortest_path(neighbors, entry.id, target.id)
-                if result is None:
-                    continue
-                path_nodes, path_edges = result
-                if len(path_edges) < 2:  # D1 already covers direct access.
-                    continue
-                buckets["D4"].append(candidate(
-                    plan, category="shortest_access_path", difficulty="D4",
-                    question=f"What is the minimum number of direct room-to-room transitions needed to get from {entry.label} to {target.label}?",
-                    answer=str(len(path_edges)), answer_format="integer", node_ids=path_nodes,
-                    edge_ids=[edge.evidence_id for edge in path_edges], path_ids=path_nodes,
-                    source_rule=f"shortest_access_path(start={entry.id},end={target.id})",
-                ))
+    # D4 — shortest access paths.  Prefer multi-hop paths, but a direct path
+    # is still a valid shortest-path fact with answer 1.  When connectivity is
+    # incomplete, only a direct path is safe: no omitted relation can shorten
+    # it below one transition.
+    for index, start in enumerate(plan.rooms):
+        for end in plan.rooms[index + 1:]:
+            result = shortest_path(neighbors, start.id, end.id)
+            if result is None:
+                continue
+            path_nodes, path_edges = result
+            if not path_edges or (not plan.connectivity_passed and len(path_edges) > 1):
+                continue
+            buckets["D4"].append(candidate(
+                plan, category="shortest_access_path", difficulty="D4",
+                question=f"What is the minimum number of direct room-to-room transitions needed to get from {start.label} to {end.label}?",
+                answer=str(len(path_edges)), answer_format="integer", node_ids=path_nodes,
+                edge_ids=[edge.evidence_id for edge in path_edges], path_ids=path_nodes,
+                source_rule=f"shortest_access_path(start={start.id},end={end.id})",
+            ))
     return buckets
 
 
-def pick_per_plan(buckets: dict[str, list[dict[str, str]]], per_plan: int) -> list[dict[str, str]]:
-    """Select one item per difficulty first, then deterministic fallbacks."""
+def pick_per_plan(buckets: dict[str, list[dict[str, str]]], per_plan: int, rng: random.Random) -> list[dict[str, str]]:
+    """Sample one candidate from each fixed QA category.
+
+    The caller supplies a seeded random generator so selection is reproducible.
+    The five-question benchmark contract is one question each for count, direct
+    access, relative position, compound access, and shortest access path.
+    Adjacency candidates remain available for later experiments, but are never
+    substituted into this fixed category set.
+    """
     selected: list[dict[str, str]] = []
     seen_questions: set[str] = set()
-    for difficulty in ("D0", "D1", "D2", "D3", "D4"):
-        # A direct-access relation has priority over shared-wall adjacency for
-        # the single D1 slot because it is the more informative QA condition.
-        rows = buckets[difficulty]
-        if difficulty == "D1":
-            rows = sorted(rows, key=lambda row: (0 if row["category"] == "direct_access" else 1, row["question"]))
-        for row in rows:
-            if row["question"] not in seen_questions:
-                selected.append(row)
-                seen_questions.add(row["question"])
-                break
-        if len(selected) == per_plan:
-            return selected
-    for difficulty in ("D1", "D2", "D3", "D4", "D0"):
-        rows = buckets[difficulty]
-        if difficulty == "D1":
-            rows = sorted(rows, key=lambda row: (0 if row["category"] == "direct_access" else 1, row["question"]))
-        for row in rows:
-            if row["question"] in seen_questions:
-                continue
+
+    def choose(difficulty: str, category: str) -> dict[str, str] | None:
+        rows = [
+            row for row in buckets[difficulty]
+            if row["category"] == category and row["question"] not in seen_questions
+        ]
+        if difficulty == "D4" and rows:
+            # Keep the path question as challenging as the reviewed graph can
+            # support.  Randomness only resolves equivalent-length paths.
+            longest = max(int(row["gold_answer"]) for row in rows)
+            rows = [row for row in rows if int(row["gold_answer"]) == longest]
+        return rng.choice(rows) if rows else None
+
+    for difficulty, category in zip(SELECTION_DIFFICULTIES, SELECTED_CATEGORIES):
+        row = choose(difficulty, category)
+        if row is not None:
             selected.append(row)
             seen_questions.add(row["question"])
-            if len(selected) == per_plan:
-                return selected
+        if len(selected) == per_plan:
+            return selected
     return selected
 
 
-def generate(input_dir: Path, output: Path, per_plan: int, include_unknown: bool) -> tuple[int, list[str]]:
-    if per_plan < 1:
-        raise ValueError("--per-plan must be at least 1")
+def generate(input_dir: Path, output: Path, per_plan: int, include_unknown: bool, selection_seed: int = 20261006,
+             benchmark_version: str = "v2") -> tuple[int, list[str]]:
+    if per_plan != len(SELECTED_CATEGORIES):
+        raise ValueError(f"--per-plan must be {len(SELECTED_CATEGORIES)} so every selected category appears once")
     annotations = sorted(input_dir.glob("*.graph.json"))
     if not annotations:
         raise ValueError(f"No *.graph.json annotations found in {input_dir}")
@@ -353,13 +365,18 @@ def generate(input_dir: Path, output: Path, per_plan: int, include_unknown: bool
     warnings: list[str] = []
     for path in annotations:
         plan = load_plan(path)
-        rows = pick_per_plan(generate_candidates(plan, include_unknown), per_plan)
+        # A per-plan seed means adding/removing another plan does not alter this
+        # plan's selection, while the overall benchmark remains reproducible.
+        rng = random.Random(f"{selection_seed}:{plan.plan_id}")
+        rows = pick_per_plan(generate_candidates(plan, include_unknown), per_plan, rng)
+        for row in rows:
+            row["selection_seed"] = str(selection_seed)
         if len(rows) < per_plan:
             warnings.append(f"{plan.plan_id}: generated {len(rows)}/{per_plan} candidates")
         selected_rows.extend(rows)
 
     for number, row in enumerate(selected_rows, start=1):
-        row["question_id"] = f"qa_v1_{number:04d}_{row['plan_id']}"
+        row["question_id"] = f"qa_{benchmark_version}_{number:04d}_{row['plan_id']}"
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=CSV_FIELDS)
@@ -372,10 +389,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-dir", type=Path, required=True, help="Folder containing *.graph.json manual annotations.")
     parser.add_argument("--output", type=Path, required=True, help="Destination CSV path.")
-    parser.add_argument("--per-plan", type=int, default=5, help="Target number of diverse questions per plan (default: 5).")
+    parser.add_argument("--per-plan", type=int, default=5, help="Exactly five questions per plan: one from each selected category (default: 5).")
     parser.add_argument("--include-unknown", action="store_true", help="Add explicit unknown-access candidates for plans without complete pair review.")
+    parser.add_argument("--selection-seed", type=int, default=20261006, help="Seed for reproducible within-difficulty candidate sampling.")
+    parser.add_argument("--benchmark-version", default="v2", help="Version included in generated question IDs (default: v2).")
     args = parser.parse_args()
-    count, warnings = generate(args.input_dir, args.output, args.per_plan, args.include_unknown)
+    count, warnings = generate(args.input_dir, args.output, args.per_plan, args.include_unknown, args.selection_seed, args.benchmark_version)
     print(f"Wrote {count} QA candidates to {args.output}")
     for warning in warnings:
         print(f"WARNING: {warning}")

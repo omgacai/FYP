@@ -1,7 +1,7 @@
 import unittest
 
 from retrieval_app.scripts.evaluate_qa import bootstrap_delta, summary
-from retrieval_app.scripts.run_qwen_qa import parse
+from retrieval_app.scripts.run_qwen_qa import parse, parse_response, validate_evidence
 
 
 class QaEvaluationTests(unittest.TestCase):
@@ -9,6 +9,13 @@ class QaEvaluationTests(unittest.TestCase):
         self.assertEqual(parse('{"answer":" YES "}', "yes_no_unknown"), ("yes", None))
         self.assertEqual(parse('{"answer":2}', "integer"), ("2", None))
         self.assertIsNotNone(parse('answer: yes', "yes_no_unknown")[1])
+
+    def test_evidence_reasoning_parser_and_graph_validation(self):
+        raw = ('{"answer":"yes","evidence":{"node_ids":["a","b"],'
+               '"edge_ids":["a--b:direct_access"]},"reasoning":"The edge joins the rooms."}')
+        answer, evidence, reasoning, error = parse_response(raw, "yes_no_unknown", "evidence_reasoning_v1")
+        self.assertEqual((answer, reasoning, error), ("yes", "The edge joins the rooms.", None))
+        self.assertEqual(validate_evidence(evidence, {"nodes": [{"id": "a"}, {"id": "b"}], "edges": [{"a": "a", "b": "b", "relation": "direct_access"}]}), [])
 
     def test_plan_macro_and_unknown_metrics(self):
         rows = [

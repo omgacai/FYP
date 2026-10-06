@@ -3,6 +3,7 @@ import {createRoot} from "react-dom/client";
 import "./styles.css";
 import "./handles.css";
 import EvaluationDashboard from "./EvaluationDashboard.jsx";
+import QaDashboard from "./QaDashboard.jsx";
 import ManualAnnotator from "./ManualAnnotator.jsx";
 
 const TYPES = ["LivingRoom", "Bedroom", "Kitchen", "Dining", "Bath", "Storage", "Entry", "Garage", "Other", "Outdoor"];
@@ -288,4 +289,5 @@ function App() {
     </section></>}
   </main>;
 }
-createRoot(document.getElementById("root")).render(new URLSearchParams(window.location.search).get("mode") === "review" ? <App/> : new URLSearchParams(window.location.search).get("mode") === "evaluate" ? <EvaluationDashboard/> : <ManualAnnotator/>);
+const mode=new URLSearchParams(window.location.search).get("mode");
+createRoot(document.getElementById("root")).render(mode === "review" ? <App/> : mode === "evaluate" ? <EvaluationDashboard/> : mode === "qa" ? <QaDashboard/> : <ManualAnnotator/>);

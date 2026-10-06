@@ -12,6 +12,26 @@ npm run dev
 
 Open the localhost URL printed by Vite. Upload the matching relation SVG and floor-plan image. The overlay uses the SVG's own coordinate system at a uniform width scale, avoiding the vertical stretching that broke the Streamlit version.
 
+## Manual20 QA results dashboard
+
+After downloading the three QA result folders to `../cluster_results/manual20_qa/`, open:
+
+```text
+http://127.0.0.1:5173/?mode=qa
+```
+
+It displays a selected plan image with its manually reviewed graph overlay,
+the frozen question and gold answer, and outputs from image-only, image + manual
+graph, and manual-graph-only Qwen conditions. Gold supporting rooms/edges/path
+are highlighted. This is an error-analysis interface; the manual graph is oracle
+context and not an extracted graph result.
+
+When `../cluster_results/manual20_qa_v2_evidence/results/qa_question_scores.csv`
+and `../cubicasa_benchmark/questions/manual20_qa_v2_candidate.csv` are present,
+the **Evaluation set** selector also offers the v2 evidence-and-reasoning run.
+That download contains evaluator scores only, so raw output, evidence citations,
+and reasoning are unavailable until its JSONL shards are downloaded.
+
 ## Review workflow
 
 1. Click a coloured room region and correct its semantic label.

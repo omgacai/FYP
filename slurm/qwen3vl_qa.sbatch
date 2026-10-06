@@ -23,6 +23,7 @@ CACHE_ROOT="${CACHE_ROOT:-$HOME/aigc-storage/fyp-model-cache}"
 : "${QA_CONDITION:?Set QA_CONDITION to image_only, graph_only, or image_graph}"
 QA_GRAPH_DIR="${QA_GRAPH_DIR:-$QA_ANNOTATIONS_DIR}"
 QA_GRAPH_SOURCE="${QA_GRAPH_SOURCE:-gold_manual}"
+QA_PROMPT_VERSION="${QA_PROMPT_VERSION:-answer_only_v1}"
 QA_NUM_SHARDS="${QA_NUM_SHARDS:-4}"
 QA_SHARD_INDEX="${QA_SHARD_INDEX:-${SLURM_ARRAY_TASK_ID:-0}}"
 
@@ -40,7 +41,8 @@ fi
 args=(--questions "$QA_QUESTIONS" --annotations-dir "$QA_ANNOTATIONS_DIR" --images-dir "$QA_IMAGES_DIR"
   --output "$OUTPUT_PATH"
   --condition "$QA_CONDITION" --model Qwen/Qwen3-VL-8B-Instruct --num-shards "$QA_NUM_SHARDS"
-  --shard-index "$QA_SHARD_INDEX" --max-pixels 1048576 --max-new-tokens 96)
+  --shard-index "$QA_SHARD_INDEX" --max-pixels 1048576 --max-new-tokens 160
+  --prompt-version "$QA_PROMPT_VERSION")
 if [[ "$QA_CONDITION" != "image_only" ]]; then
   args+=(--graph-dir "$QA_GRAPH_DIR" --graph-source "$QA_GRAPH_SOURCE")
 fi

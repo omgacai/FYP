@@ -28,33 +28,77 @@ def graph(path: Path) -> dict[str, Any]:
         if edge.get("a") in ids and edge.get("b") in ids and isinstance(edge.get("relation"), str):
             relation = "direct_access" if edge["relation"] in {"connected_by_door", "open_connected"} else edge["relation"]
             if relation in {"direct_access", "adjacent_to", "uncertain"}:
-                edges.append({"a": edge["a"], "b": edge["b"], "relation": relation})
+                edges.append({"a": edge["a"], "b": edge["b"], "relation": relation,
+                              "edge_id": edge_id(edge["a"], edge["b"], relation)})
     return {"plan_id": raw.get("plan_id"), "nodes": nodes, "edges": edges}
 
 
-def parse(raw: str, answer_format: str) -> tuple[Any | None, str | None]:
+PROMPT_VERSIONS = ("answer_only_v1", "evidence_reasoning_v1")
+
+
+def edge_id(a: str, b: str, relation: str) -> str:
+    return "--".join(sorted((a, b))) + f":{relation}"
+
+
+def parse_response(raw: str, answer_format: str, prompt_version: str) -> tuple[Any | None, dict[str, list[str]] | None, str | None, str | None]:
     try:
         value = json.loads(raw)
     except json.JSONDecodeError as error:
-        return None, f"invalid_json:{error.msg}"
-    if not isinstance(value, dict) or set(value) != {"answer"}:
-        return None, "schema_must_be_exactly_answer"
+        return None, None, None, f"invalid_json:{error.msg}"
+    expected = {"answer"} if prompt_version == "answer_only_v1" else {"answer", "evidence", "reasoning"}
+    if not isinstance(value, dict) or set(value) != expected:
+        return None, None, None, f"schema_must_be_exactly_{'_'.join(sorted(expected))}"
+    evidence = None
+    reasoning = None
+    if prompt_version == "evidence_reasoning_v1":
+        evidence = value["evidence"]
+        reasoning = value["reasoning"]
+        if not isinstance(evidence, dict) or set(evidence) != {"node_ids", "edge_ids"} or not all(
+            isinstance(evidence[key], list) and all(isinstance(item, str) for item in evidence[key])
+            for key in ("node_ids", "edge_ids")
+        ):
+            return None, None, None, "evidence_must_have_string_node_ids_and_edge_ids"
+        if not isinstance(reasoning, str) or not reasoning.strip():
+            return None, None, None, "reasoning_must_be_nonempty_string"
     answer = value["answer"]
     if answer_format == "integer":
-        if isinstance(answer, int) and not isinstance(answer, bool): return str(answer), None
-        if isinstance(answer, str) and answer.strip().lstrip("-").isdigit(): return str(int(answer.strip())), None
+        if isinstance(answer, int) and not isinstance(answer, bool): return str(answer), evidence, reasoning, None
+        if isinstance(answer, str) and answer.strip().lstrip("-").isdigit(): return str(int(answer.strip())), evidence, reasoning, None
     if answer_format == "yes_no_unknown" and isinstance(answer, str) and answer.strip().lower() in {"yes", "no", "unknown"}:
-        return answer.strip().lower(), None
+        return answer.strip().lower(), evidence, reasoning, None
     if answer_format == "direction" and isinstance(answer, str) and answer.strip().lower() in {"left", "right", "above", "below"}:
-        return answer.strip().lower(), None
+        return answer.strip().lower(), evidence, reasoning, None
     if answer_format == "room_id_list" and isinstance(answer, list) and all(isinstance(item, str) for item in answer):
-        return sorted(answer), None
-    return None, f"answer_does_not_match_{answer_format}"
+        return sorted(answer), evidence, reasoning, None
+    return None, evidence, reasoning, f"answer_does_not_match_{answer_format}"
 
 
-def make_messages(row: dict[str, str], condition: str, image_path: Path, graph_data: dict[str, Any] | None) -> list[dict[str, Any]]:
-    system = ("Answer residential floor-plan questions from supplied evidence only. Do not infer an absent graph edge as a negative fact. "
-              "Return exactly one JSON object, no Markdown, with exactly one field: answer.")
+def parse(raw: str, answer_format: str, prompt_version: str = "answer_only_v1") -> tuple[Any | None, str | None]:
+    """Parse the scored answer; detailed evidence stays available in run records."""
+    answer, _, _, error = parse_response(raw, answer_format, prompt_version)
+    return answer, error
+
+
+def validate_evidence(evidence: dict[str, list[str]] | None, graph_data: dict[str, Any] | None) -> list[str] | None:
+    if evidence is None or graph_data is None:
+        return None
+    node_ids = {node["id"] for node in graph_data["nodes"]}
+    edge_ids = {edge_id(edge["a"], edge["b"], edge["relation"]) for edge in graph_data["edges"]}
+    errors = [f"unknown_node_id:{item}" for item in evidence["node_ids"] if item not in node_ids]
+    errors.extend(f"unknown_edge_id:{item}" for item in evidence["edge_ids"] if item not in edge_ids)
+    return errors
+
+
+def make_messages(row: dict[str, str], condition: str, image_path: Path, graph_data: dict[str, Any] | None,
+                  prompt_version: str) -> list[dict[str, Any]]:
+    system = "Answer residential floor-plan questions from supplied evidence only. Do not infer an absent graph edge as a negative fact. "
+    if prompt_version == "answer_only_v1":
+        system += "Return exactly one JSON object, no Markdown, with exactly one field: answer."
+    else:
+        system += ("A direct_access edge is symmetric: it proves direct access in either direction, and only an explicit direct_access edge proves it. "
+                   "Return exactly one JSON object, no Markdown, with fields answer, evidence, and reasoning. "
+                   "Evidence must be {\"node_ids\":[...],\"edge_ids\":[...]}; cite only supplied graph IDs, use [] when no graph ID supports the answer. "
+                   "Reasoning must be one concise evidence-grounded sentence.")
     content: list[dict[str, Any]] = []
     if condition in {"image_only", "image_graph"}:
         content.append({"type": "image", "image": str(image_path)})
@@ -64,7 +108,9 @@ def make_messages(row: dict[str, str], condition: str, image_path: Path, graph_d
     content.append({"type": "text", "text": (
         f"Question: {row['question']}\nRequired answer format: {row['answer_format']}. "
         "Use yes/no/unknown for yes_no_unknown; a base-10 integer for integer; left/right/above/below for direction; "
-        "or a JSON array for room_id_list. Example: {\"answer\":\"yes\"}."
+        "or a JSON array for room_id_list. "
+        + ("Example: {\"answer\":\"yes\"}." if prompt_version == "answer_only_v1" else
+           "Example: {\"answer\":\"yes\",\"evidence\":{\"node_ids\":[\"room-a\",\"room-b\"],\"edge_ids\":[\"room-a--room-b:direct_access\"]},\"reasoning\":\"The cited direct-access edge connects the two rooms.\"}.")
     )})
     return [{"role": "system", "content": system}, {"role": "user", "content": content}]
 
@@ -78,6 +124,7 @@ def main() -> None:
     parser.add_argument("--model", default="Qwen/Qwen3-VL-8B-Instruct"); parser.add_argument("--max-pixels", type=int, default=1024 * 1024)
     parser.add_argument("--max-new-tokens", type=int, default=96); parser.add_argument("--num-shards", type=int, default=1)
     parser.add_argument("--shard-index", type=int, default=0); parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--prompt-version", choices=PROMPT_VERSIONS, default="answer_only_v1")
     args = parser.parse_args()
     if args.num_shards < 1 or not 0 <= args.shard_index < args.num_shards: parser.error("invalid shard arguments")
     if args.condition != "image_only" and args.graph_dir is None: args.graph_dir = args.annotations_dir
@@ -106,12 +153,15 @@ def main() -> None:
             image_path = images / f"{row['plan_id']}.png"
             if args.condition in {"image_only", "image_graph"} and not image_path.is_file(): raise FileNotFoundError(image_path)
             graph_data = graph(graphs / f"{row['plan_id']}.graph.json") if graphs else None
-            messages = make_messages(row, args.condition, image_path, graph_data)
-            raw = generate(messages); answer, error = parse(raw, row["answer_format"])
+            messages = make_messages(row, args.condition, image_path, graph_data, args.prompt_version)
+            raw = generate(messages); answer, evidence, reasoning, error = parse_response(raw, row["answer_format"], args.prompt_version)
+            evidence_errors = validate_evidence(evidence, graph_data)
             record = {"question_id": row["question_id"], "plan_id": row["plan_id"], "condition": args.condition,
                       "graph_source": args.graph_source if graph_data else None, "model": args.model, "answer_format": row["answer_format"],
                       "gold_answer": row["gold_answer"], "raw_output": raw, "parsed_answer": answer, "valid_output": error is None,
                       "parse_error": error, "max_pixels": args.max_pixels, "max_new_tokens": args.max_new_tokens, "temperature": 0,
+                      "prompt_version": args.prompt_version, "evidence": evidence, "reasoning": reasoning,
+                      "evidence_valid": None if evidence_errors is None else not evidence_errors, "evidence_errors": evidence_errors,
                       "prompt": messages, "decoded_at": datetime.now(timezone.utc).isoformat()}
             handle.write(json.dumps(record, ensure_ascii=False) + "\n"); handle.flush()
             print(f"[{i}/{len(rows)}] {row['question_id']}: {'valid' if error is None else error}")
