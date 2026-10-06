@@ -1,5 +1,5 @@
 // Shared by the read-only browser evaluator and the batch CLI. No label-based matching.
-export const VERSION='floorplan-evaluation/1';
+export const VERSION='floorplan-evaluation/2';
 export const RELATIONS=['connected_by_door','open_connected','adjacent_to','uncertain'];
 const aliases={bedroom:'Bedroom',bathroom:'Bath',bath:'Bath',kitchen:'Kitchen',living_room:'LivingRoom',livingroom:'LivingRoom',dining_room:'Dining',dining:'Dining',corridor:'Corridor',storage:'Storage',entrance:'Entry',entry:'Entry',garage:'Garage',balcony:'Outdoor',outdoor:'Outdoor',other:'Other'};
 const pair=(a,b)=>JSON.stringify([a,b].sort());
@@ -34,7 +34,8 @@ function assignment(cost){const n=cost.length;if(!n)return [];const m=cost[0].le
   const result=Array(n).fill(-1);for(let j=1;j<=m;j++)if(p[j])result[p[j]-1]=j-1;return result;
 }
 export function metrics(tp,fp,fn){return {tp,fp,fn,precision:tp+fp?tp/(tp+fp):null,recall:tp+fn?tp/(tp+fn):null,f1:2*tp+fp+fn?2*tp/(2*tp+fp+fn):null};}
-export function evaluateGraph(reference,prediction,{minIoU=0.3,completePairs=false,relationMode='fine'}={}){
+// Report direct access as one category: door access and open passage access.
+export function evaluateGraph(reference,prediction,{minIoU=0.3,completePairs=false,relationMode='access'}={}){
   if(!(minIoU>0&&minIoU<=1))throw Error('minIoU must be in (0,1]');
   const gold=normalizeGraph(reference,{relationMode}),pred=normalizeGraph(prediction,{relationMode});
   if(gold.plan_id&&pred.plan_id&&gold.plan_id!==pred.plan_id)throw Error('Plan IDs do not match');

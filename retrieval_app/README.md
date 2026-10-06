@@ -45,6 +45,88 @@ After running CubiGraph, add these fields to each record:
 
 `gold` graph provenance is reserved for a manually verified/dataset-verified topology graph. A CubiGraph result from SVG, parser, or VLM output is `silver`.
 
+## Generate deterministic QA candidates from manual graphs
+
+The QA generator reads a directory of `floorplan-manual-graph/2` annotations and
+writes a CSV of review-ready question/answer candidates. Answers are computed
+from the reviewed graph and geometry; an LLM is not used. Each row includes the
+supporting node IDs, edge IDs, and path so that it can be checked against the
+floor-plan image before the QA set is frozen.
+
+```bash
+python3 -m retrieval_app.scripts.generate_manual_graph_qa \
+  --input-dir cubicasa_benchmark/annotations \
+  --output cubicasa_benchmark/questions/manual20_qa_v1.csv \
+  --per-plan 5
+```
+
+The default target is five diverse questions per plan: D0 count, D1 direct
+relation, D2 relative position, D3 compound access, and D4 shortest access
+path. It does **not** turn absent edges into `no`, because the current Manual20
+records have `all_pairs_reviewed: false`. Add `--include-unknown` only when you
+want explicit incomplete-evidence examples. Every generated row has
+`needs_human_review=true`; review and freeze the CSV before running QA models.
+
+## Run and evaluate the Manual20 QA pilot
+
+`run_qwen_qa.py` is separate from the image-to-graph experiment. It makes no
+answer-repair calls: malformed output is saved and scored as invalid/wrong.
+Keep Qwen model, prompt, pixel limit, decoding, and the frozen CSV identical
+for every condition.
+
+After syncing `cubicasa_benchmark/` to SOC, submit a four-way array for each
+condition. This example assumes the bundle is at `~/vlm/data/manual20`:
+
+```bash
+cd ~/vlm/code/FYP
+export QA_QUESTIONS=~/vlm/data/manual20/questions/manual20_qa_v1.csv
+export QA_ANNOTATIONS_DIR=~/vlm/data/manual20/annotations
+export QA_IMAGES_DIR=~/vlm/data/manual20/images
+export QA_OUTPUT_DIR=~/vlm/outputs/manual20_qa/image_only
+export QA_CONDITION=image_only
+sbatch --array=0-3 slurm/qwen3vl_qa.sbatch
+```
+
+For the gold-graph upper bound, change only the input condition and output
+location:
+
+```bash
+export QA_OUTPUT_DIR=~/vlm/outputs/manual20_qa/image_gold
+export QA_CONDITION=image_graph
+export QA_GRAPH_DIR="$QA_ANNOTATIONS_DIR"
+export QA_GRAPH_SOURCE=gold_manual
+sbatch --array=0-3 slurm/qwen3vl_qa.sbatch
+```
+
+For Qwen/CubiGraph/EGTR graph conditions, set `QA_GRAPH_DIR` to a directory of
+canonical `<plan_id>.graph.json` files and change `QA_GRAPH_SOURCE`, then submit
+the same array. The evaluator accepts shards directly:
+
+```bash
+python -m retrieval_app.scripts.evaluate_qa \
+  --questions "$QA_QUESTIONS" \
+  --predictions ~/vlm/outputs/manual20_qa/image_only/*.jsonl \
+  --predictions ~/vlm/outputs/manual20_qa/image_gold/*.jsonl \
+  --output-dir ~/vlm/outputs/manual20_qa/results
+```
+
+It writes `qa_metrics.json` and a per-question CSV. Its headline is plan-macro
+exact accuracy; condition deltas use a paired bootstrap over plan identity.
+`unknown` metrics are intentionally marked not estimable until reviewed
+gold-unknown questions are present in the frozen CSV.
+
+Evaluate graph extraction separately; do not describe these node/edge scores as
+QA. The existing evaluator reports matched-room node precision/recall/F1,
+room-type accuracy, `direct_access` and `adjacent_to` edge metrics, excluded
+uncertain pairs, and aligned graph edit cost:
+
+```bash
+node review_react/scripts/evaluate-benchmark.mjs \
+  --root ~/vlm/data/manual20 \
+  --relation-mode access \
+  --output ~/vlm/outputs/manual20_qa/graph_metrics.json
+```
+
 ## Derive a versioned CubiGraph corpus
 
 The graph indexer reads the source manifest, writes graph JSON/SVG files under `derived/`, and emits a **new** enriched manifest. Start with 20 plans to inspect the output before processing all 5K.

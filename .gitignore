@@ -4,6 +4,13 @@ __pycache__
 input/
 outputs/
 floorplan_parser_output/
-/cubicasa_eval/
+/cubi_annotations/
+cubicasa_benchmark/
+egtr_audit/
+experiments/
+codex_annotations/
+cluster_results/
 
 /egtr_runs/
+
+checkpoints/

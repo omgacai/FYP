@@ -1,0 +1,32 @@
+{
+  "hash": "3b5f2748",
+  "configHash": "af358e72",
+  "lockfileHash": "b0bed60c",
+  "browserHash": "71b2c87b",
+  "optimized": {
+    "react-dom/client": {
+      "src": "../../../../CareNavigator-SG/frontend/node_modules/react-dom/client.js",
+      "file": "react-dom_client.js",
+      "fileHash": "43d2ef9a",
+      "needsInterop": true
+    },
+    "react": {
+      "src": "../../../../CareNavigator-SG/frontend/node_modules/react/index.js",
+      "file": "react.js",
+      "fileHash": "72d9b6f9",
+      "needsInterop": true
+    },
+    "react/jsx-dev-runtime": {
+      "src": "../../../../CareNavigator-SG/frontend/node_modules/react/jsx-dev-runtime.js",
+      "file": "react_jsx-dev-runtime.js",
+      "fileHash": "43631b19",
+      "needsInterop": true
+    }
+  },
+  "chunks": {
+    "rolldown-runtime-BvCyGRYZ": {
+      "file": "rolldown-runtime-BvCyGRYZ.js",
+      "isDynamicEntry": false
+    }
+  }
+}

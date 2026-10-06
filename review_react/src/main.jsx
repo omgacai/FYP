@@ -2,6 +2,7 @@ import React, {useMemo, useRef, useState} from "react";
 import {createRoot} from "react-dom/client";
 import "./styles.css";
 import "./handles.css";
+import EvaluationDashboard from "./EvaluationDashboard.jsx";
 import ManualAnnotator from "./ManualAnnotator.jsx";
 
 const TYPES = ["LivingRoom", "Bedroom", "Kitchen", "Dining", "Bath", "Storage", "Entry", "Garage", "Other", "Outdoor"];
@@ -287,4 +288,4 @@ function App() {
     </section></>}
   </main>;
 }
-createRoot(document.getElementById("root")).render(new URLSearchParams(window.location.search).get("mode") === "review" ? <App/> : <ManualAnnotator/>);
+createRoot(document.getElementById("root")).render(new URLSearchParams(window.location.search).get("mode") === "review" ? <App/> : new URLSearchParams(window.location.search).get("mode") === "evaluate" ? <EvaluationDashboard/> : <ManualAnnotator/>);

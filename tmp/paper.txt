@@ -1,0 +1,1239 @@
+
+
+===== PAGE 1 =====
+IEEE TRANSACTIONS ON MULTIMEDIA, VOL. 25, 2023 6729
+Subjective Functionality and Comfort Prediction for
+Apartment Floor Plans and Its Application to
+Intuitive Online Property Search
+Taro Narahara , Member, IEEE , and Toshihiko Yamasaki , Member, IEEE
+Abstract —This paper presents a new user experience for online
+apartment search using functionality and comfort as query items.
+Speciﬁcally, it has three technical contributions. First, we present
+a new dataset on the perceived functionality and comfort scores
+of residential ﬂoor plans using nine question statements about
+the level of comfort, openness, privacy, etc. Second, we propose
+an algorithm to predict the scores from the ﬂoor plan images.
+Lastly, we implement a new apartment search system and conduct a
+large-scale usability study using crowdsourcing. The experimental
+results show that our apartment search system can provide a better
+user experience. To the best of our knowledge, this is the ﬁrst work
+to propose a highly accurate machine learning model for predicting
+the subjective functionality and comfort of apartments.
+Index Terms —Attractiveness prediction, crowdsourcing, graph
+analysis, real estate ﬂoor plans.
+I. I NTRODUCTION
+IN RECENT years, the real estate industry has been show-
+ing increasing interest in applying machine learning-assisted
+solutions such as price prediction [1], [2], [3], [4] and apartment-
+searching [5] tools. Some online platforms can help users search
+for properties by specifying metadata, such as the type of apart-
+ment and room size. However, many users inspect ﬂoor plans
+based on more intuitive sensory impressions, such as living com-
+fort,openness , and privacy . This makes it difﬁcult to estimate
+the perceptive values of apartments through any currently avail-
+able retrieval system, as there are no quantiﬁable data that rep-
+resent such subjective characteristics of apartments. Moreover,
+Manuscript received 15 March 2022; revised 3 July 2022 and 7 August 2022;
+accepted 25 September 2022. Date of publication 27 October 2022; date of cur-
+rent version 1 November 2023. This work was supported by the CREI Research
+Project of The University of Tokyo. The Associate Editor coordinating the re-
+view of this manuscript and approving it for publication was Prof. Abderrahim
+Benslimane. (Corresponding author: Taro Narahara.)
+This work involved human subjects or animals in its research. Approval of
+all ethical and experimental procedures and protocols was granted by the Insti-
+tutional Review Board (IRB) of New Jersey Institute of Technology (F466-20)
+and The University of Tokyo (UT-IST-RE190927-1).
+Taro Narahara is with the Hillier College of Architecture and Design (HCAD),
+New Jersey Institute of Technology (NJIT), Newark, NJ 07102 USA (e-mail:
+narahara@njit.edu).
+Toshihiko Yamasaki is with the Department of Information and Commu-
+nication Engineering, Graduate School of Information Science and Technol-
+ogy, The University of Tokyo, Bunkyo-ku, Tokyo 113-8656, Japan (e-mail: ya-
+masaki@cvm.t.u-tokyo.ac.jp).
+This article has supplementary downloadable material available at
+https://doi.org/10.1109/TMM.2022.3214072, provided by the authors.
+Digital Object Identiﬁer 10.1109/TMM.2022.3214072apartment properties listed with the same size and type in their
+metadata (e.g., two-bedroom apartments) could feature differ-
+ent room arrangements, which will have a signiﬁcant impact
+on their functionality and overall livability. Therefore, further
+understanding the relationships between ﬂoor plan images and
+structured data, including the connectivity of rooms and meta-
+data, could improve the user experience on real estate search
+platforms.
+Information on ﬂoor plans has been widely adopted by users
+to evaluate the values of properties over the years, as can be
+seen in many real estate portal sites today. A ﬂoor plan image
+of an apartment includes various room types, room sizes, and
+connections and spatial layouts of the rooms. According to a cus-
+tomer survey conducted in Japan1, a ﬂoor plan was found to be
+among the top ﬁve priorities for customers during their apart-
+ment search. Moreover, it was found that customers are very
+reluctant to compromise on their preferred ﬂoor plans and are
+often willing to invest more for their pursuits. Essential elements
+that largely inﬂuence functional, environmental, and some per-
+ceptive characteristics of apartments, such as locations of walls,
+columns, windows, and wet areas, are already set in the ﬂoor
+plans, and cannot be changed no matter the ﬁnish materials or
+furniture used. Although we can estimate the subjective quality
+of apartments, such as living comfort , simply by looking at the
+ﬂoor plan images, no related work nor dataset has been reported
+for such a task.
+In this study, therefore, we ﬁrst constructed a new dataset that
+contains 1,000 ﬂoor plan images (hereafter, “dataset A”). Each
+image has a subjective score from nine perspectives relating to
+perceived quality and functionality of the apartments. Exam-
+ples of the generated dataset are shown in Figure 1. Based on
+this dataset, we developed a multimodal neural network-based
+framework to predict subjective apartment scores via their ﬂoor
+plan images, graph representations, and various metadata. The
+experimental results showed that we can predict the scores with
+a correlation coefﬁcient of 0.701 on average. This is relatively
+high, considering that they are all subjective scores. Our study
+shows that the baseline model, which uses features based on
+images alone, has a much lower average correlation coefﬁcient
+of 0.491, even using ResNet50, the state-of-the-art network for
+image recognition tasks.
+1[Online]. Available:https://suumo.jp/article/oyakudachi/oyaku/chintai/fr_
+data/hikkoshi-sumikae2017/, accessed 09/16/2020
+© 2022 The Authors. This work is licensed under a Creative Commons Attribution 4.0 License. For more information, see
+https://creativecommons.org/licenses/by/4.0/
+
+===== PAGE 2 =====
+6730 IEEE TRANSACTIONS ON MULTIMEDIA, VOL. 25, 2023
+Fig. 1. Examples of our functionality evaluation dataset using real estate ﬂoor plan images. Each example shows a ﬂoor plan image, a bar graph for nine e valuation
+measures, and a graph from left to right. (a) Highest scoring ﬂoor plan; (b) lowest scoring ﬂoor plan; (c) ﬂoor plan that scored high on modernity; (d) ﬂo or plan
+that scored low on modernity.
+The contributions of this paper can be summarized as follows.rWe created and analyzed a large-scale dataset of subjective
+evaluations of both perceived quality and functionality of
+real estate ﬂoor plan images using crowdsourcing. (i.e.,
+3,128 participants rated 1,000 ﬂoor plans based on nine
+subjective criteria.)rOur proposed prediction model, which extracts features
+from ﬂoor plan images and their graph structures, proved
+to be effective and highly accurate with average correla-
+tion coefﬁcient of 0.701. We also developed a workﬂow to
+extract semantically segmented ﬂoor plan images, graphs,
+and graph-related features for our multimodal deep neural
+network model.rUpon using a new set of ﬂoor plan images (with predicted
+scores by our model as a dataset), our proposed apartment
+search tool was found to provide a signiﬁcantly better user
+experience than the baseline tool without the proposed fea-
+ture.
+This paper is organized as follows. In Section II, we report the
+results of our literature survey. Section III explains dataset cre-
+ation. Section IV describes the methodology utilized in the study.
+Section V explains the experiments and their results. Section VI
+describes the usability study of our proposed apartment search
+tool. Section VII discusses the limitations of our approach, with
+concluding remarks included in Section VIII.
+II. R ELATED WORKS
+A. Real Estate Tasks Using Property Images
+Several researchers have worked on tasks related to real estate
+using property images. In [2], the authors tried to improve the
+accuracy of real estate price prediction by predicting the luxury
+levels of the rooms using the appearance and interior images of
+properties. Law et al. [6] showed that street view and satellite
+images are also helpful when predicting house prices. In [7],
+the researchers attempted to predict the construction age of theproperty by combining the predictions for each of its salient im-
+age patch, resulting in greater accuracy than human prediction.
+Moreover, deep learning has been applied to real estate prop-
+erty images, and some studies have analyzed real estate images
+themselves. In [8], real estate images were classiﬁed into differ-
+ent types (e.g., bedroom, kitchen, living, and garden) by employ-
+ing contrast-limited adaptive histogram equalization (CLAHE)
+and applying long short-term memory (LSTM) in both verti-
+cal and horizontal directions. Wang et al. [9] predicted which
+among two images of the same property is more attractive using
+a pairwise comparison network.
+These works demonstrated the use of images in speciﬁc tasks
+that are related to the appearance of the property. In our task,
+to comprehensively represent the user experience in term of the
+perceived quality and functionality, we assumed that ﬂoor plan
+information with related metadata can provide more structured
+and detailed information on the property.
+B. Real Estate Tasks Using Floor Plan
+Several related works have been conducted on ﬂoor plan im-
+age analysis. Before the development of deep learning, some
+researchers manually and graphically analyzed ﬂoor plans us-
+ing adjacency graphs (with rooms, corridors, and other features
+as labeled nodes) and used them to classify apartments into dif-
+ferent types [10]. Takizawa et al. [11] analyzed the relationships
+among adjacency graph structures of apartment ﬂoor plans and
+their rental fees. They extracted subgraphs from the adjacency
+graphs and effectively estimated the rent from the presence and
+absence of common subgraphs. However, the cost of creating
+adjacency graphs by hand was very high.
+Floor plan images have also proved to be useful for rent price
+prediction [12], [13], [14]. In [12], [13], it was demonstrated
+that conventional bag-of-features (BoFs) [15] has the potential
+to achieve lower-error prediction with smaller variance, although
+the contribution of BoFs was smaller than that of other apartment
+
+===== PAGE 3 =====
+NARAHARA AND YAMASAKI: SUBJECTIVE FUNCTIONALITY AND COMFORT PREDICTION 6731
+attribute information. In [14], image features were applied to
+hedonic price models [16] to predict the apartment rent price
+after controlling for locational and structural characteristics of
+an apartment.
+Recently, machine learning has been applied to the analysis of
+ﬂoor plan images. Yamasaki et al. [5] used deep neural networks
+(DNNs) to conduct semantic segmentation of ﬂoor plan images.
+They further developed a method to systematically generate ad-
+jacency graphs of ﬂoor plans from the semantically segmented
+images. Takada et al. [17] utilized multi-task learning for ﬂoor
+plan images and retrieved similar ﬂoor plans to the query. The
+ﬂoor plan recognition was then applied to property recommen-
+dation [18], [19] and retrieval [20]. Additionally, a toolbox for
+converting ﬂoor plan images to a vector format was developed
+in [21]. Furthermore, generating ﬂoor plans using graphs [22],
+[23], panoramic images [24], or 3D scans [25], [26], [27], [28],
+[29], [30] is emerging. Generating furniture layouts using graphs
+was also discussed in [31].
+C. Prediction of Subjective Scores of Multimedia Content
+There are extensive surveys in the literature introducing qual-
+ity assessment studies and methods using images [32] and
+videos [33], [34].
+Assessing the perceived low-level quality of images [35], [36],
+[37], [38] and videos [39], [40], [41], [42] has been an important
+topic in multimedia. These works tried to predict the perceived
+quality when the quality of the multimedia content is somewhat
+degraded by low-level factors such as compression and noise.
+Predicting higher-level subjective scores has also been an ac-
+tive research area. For instance, analysis of image aesthetics re-
+lates more to color usage, composition, etc., and not to low-level
+noise in the content [43], [44], [45], [46], [47], [48]. Sentiment
+and emotion classiﬁcation and affective analysis constitute an-
+other direction of research for analyzing subjective evaluation
+of multimedia content. In this regard, many related works can be
+found in the literature for texts [49], [50], [51], images [52], [53],
+[54], [55], [56], [57], [58], speech [59], music [60], videos [53],
+[61], [62], [63], [64], and their combinations [65], [66], [67].
+Skills and creativeness have also been research targets, includ-
+ing skill assessment [68], creativity [69], click through rate pre-
+diction for online advertisements [70], [71], presentation slide
+assessment [72], [73], and so on.
+To the best of our knowledge, this is the ﬁrst work on subjec-
+tive evaluation of apartment ﬂoor plans. In the paper, we show
+that predicting the subjective functionality and comfort is pos-
+sible, and we also demonstrate potential applications of such
+predictions.
+III. D ATASET CREATION
+A. Subjective Scores
+In this study, we used crowdsourcing to create a new dataset
+based on subjective evaluation of real estate ﬂoor plan images
+through a set of statements that question their levels of comfort,
+openness, privacy, and other characteristics.
+In total, 3,128 workers participated in this evaluation. We re-
+cruited 400 participants separately from ten groups: two genders
+Fig. 2. A screenshot of the crowdsourcing page.
+over ﬁve age ranges (20-29, 30-39, 40-49, 50-59, and 60+) using
+a crowdsourcing service.
+We used ﬂoor plan images of Japanese rental apartments from
+the “Home’s dataset” released by LIFULL Co., Ltd. with the co-
+operation of National Institute of Informatics,2which has been
+widely used as a general ﬂoor plan image dataset in the interna-
+tional research community [22], [74], [75], [76]. We randomly
+selected 1,000 ﬂoor plan images that included apartments with
+one, two, three, and four or more bedrooms in balanced propor-
+tions and prepared the following nine question statements for
+each image (questions Q1 to Q3 are about impressions, Q4 to
+Q6 are about functionality, and Q7 to Q9 are about environmen-
+tal criteria):rQ1 (Spaciousness): It is a spacious and open ﬂoor plan.rQ2 (Modernity): The impression of the room layout is mod-
+ern and contemporary.rQ3 (Luxuriance): It is a luxurious apartment, and the rent
+might be expensive.rQ4 (Connectivity): Connectivity, adjacency, and layout of
+rooms and circulation are efﬁcient and look comfortable.rQ5 (Wet Areas): The trafﬁc paths for the kitchen, bathroom,
+and restroom are good.rQ6 (Storage): Locations and sizes of storage are good.rQ7 (Airﬂow): Airﬂow inside the ﬂoor plan is good.rQ8 (Solar Exp.): Solar exposure of the ﬂoor plan is good.rQ9 (Privacy): The arrangement and adjacency of rooms
+fully consider the privacy of each family member.
+In Q9, participants were provided a family size to evaluate the
+privacy of the image. Each ﬂoor plan was evaluated based on a
+ﬁve-grade score on a scale of 1 (strongly disagree) to 5 (strongly
+agree) by participants. Only the ﬂoor plan images were shown
+to participants for the evaluation (Figure 2). Each participant
+was asked to evaluate 25 ﬂoor plan images. A task completion
+control was implemented, and the participants were required
+to answer all the assigned questions in order to complete the
+task; otherwise, their responses were not included in the study.
+After removing those from whom we did not receive all re-
+sponses and also those who chose the same rating for all (i.e.,
+2National Institute of Informatics (NII), https://www.nii.ac.jp/dsc/idr/lifull/
+homes.html (accessed: 05.05.2020)
+
+===== PAGE 4 =====
+6732 IEEE TRANSACTIONS ON MULTIMEDIA, VOL. 25, 2023
+Fig. 3. Histograms of the responses (5-point Likert scale) for several examples
+of randomly selected ﬂoor plan images.
+“straight-lining”), we obtained 3,128 valid participants’ results
+out of the 4,000 participants that were recruited. The remaining
+871 include those who either dropped out or were not included
+for the reasons stated above. Thus, each ﬂoor plan was eval-
+uated by 78 to 80 individuals (i.e., 2 genders ×5 age ranges
+×400 participants ×25 images / 1,000 total images =100
+participants per image; with approximately 20% drop outs, this
+coincides with 3128/4000 =0.782). We veriﬁed that the his-
+tograms of responses by participants were approximately nor-
+mally distributed from random selections of over 200 ﬂoor plans
+and that no isolated peaks with unusual values were found. Fig-
+ure 3 shows some examples of histograms from our randomly
+selected ﬂoor plans. Each participant would have different mean
+and standard deviation in their evaluation scores, and therefore
+the scores were standardized before taking the average among
+the participants. We used the value obtained by subtracting the
+mean value from each raw score and dividing it by the stan-
+dard deviation. The resulting scores were normalized between
+-1 and 1 for each question. The effect of this standardization is
+discussed in Section V-B. Figure 1 shows selected examples of
+ﬂoor plans with the corresponding results of the nine scores of
+subjective measure. The error bar represents the standard devi-
+ation. Next, for each ﬂoor plan, we averaged the scores from
+the nine questions. Since we averaged nine scores that origi-
+nally came from different populations of scores with different
+distributions, we standardized the mean values from all ﬂoor
+plans and normalized them between -1 and 1; we called this
+value the “Total Score” of the ﬂoor plan. The Total Score repre-
+sents the overall performance of each ﬂoor plan across all nine
+questions.
+B. Segmentation and Graph Extraction
+A ﬂoor plan can also be viewed as a graph with nodes repre-
+senting rooms and with edges representing connections between
+them [5], [20], [22], [23]. Therefore, we extracted graphs from
+ﬂoor plan images and used them as features to predict the ninesubjective scores deﬁned above. This is a reasonable assump-
+tion because ﬂoor plan images are inspected for the connections
+among rooms and their adjacency.
+In order to extract corresponding graphs automatically from
+ﬂoor plan images, we used the following two steps (Figure 4 top
+left). First, we prepared 3,800 new ﬂoor plan images (no over-
+lap with dataset A), which we call dataset B, with their manu-
+ally annotated segmented images using an online annotation tool
+(please see Figure 4). They were consistently color-coded and se-
+mantically segmented into the following 15 classes of elements:
+wall, western bedroom (wbed), Japanese bedroom (jbed), dining
+kitchen (dk), restroom (wc), bathroom (bath), washroom (wash),
+balcony (balc), entrance (ent), corridor (corri), stairs, closet (cl),
+door, window, and unknown elements that do not belong to any
+category (abbreviations in parentheses are used in ﬁgures rep-
+resenting graph nodes). Then, we prepared a segmentation pre-
+diction network based on the method introduced in [5] using
+an improved network architecture, DeepLab v3+ [77], [78], in-
+stead of fully convolutional networks. Using 3,040 images for
+training, 380 for validation, and 380 for testing, we trained the
+network using the segmented images as ground truth data. We
+automatically obtained 1,000 segmented images with subjective
+scores for our dataset by feeding dataset A into this pre-trained
+network using DeepLab v3+.
+Second, we used the rule-based method to extract 1,000
+graphs from the inferred segmented images using images in
+dataset A following the same procedure in [20]. Figure 5 shows
+examples of ﬂoor plan images, inferred segmented images, ex-
+tracted graphs, and ground truth (GT) segmented images, which
+were manually annotated using an online annotation tool. We
+used 11 elements for nodes of the graphs, excluding the wall,
+door, window, and unknown elements from the above 15 el-
+ements. We added edges between two rooms only if they are
+directly accessible through a physical opening or door. Nodes
+were created by extracting regions representing rooms with a
+certain area in the inferred segmented images. The resulting
+dataset was used to determine whether the differences in graph
+structures inﬂuence the impression and functionality of apart-
+ments from subjective evaluations.
+In Figure 5, it is noticeable that the inferred segmented images
+using the segmentation prediction network are noisy and slightly
+degraded compared to the GT segmented images. As a result, the
+extracted graphs from the inferred images are not as accurate as
+the grand truth graphs extracted from the GT segmented images.
+In Section V-B, we discuss how the imperfections in the use of
+inferred images and extracted graphs affects the prediction accu-
+racy of our proposed model compared to the best-case using GT
+segmented images and GT graphs as input features as the upper
+bound performance. In fact, the average performance drop in
+Pearson correlation coefﬁcient (PCC) is only 0.046 between the
+two cases, which is statistically insigniﬁcant (see Section V-B).
+It is thus acceptable to use the inferred segmented images instead
+of GT segmented images, which allows us to automatically gen-
+erate all required features only from ﬂoor plan images without
+preparing manually annotated ﬂoor plan images for new data
+inputs.
+
+===== PAGE 5 =====
+NARAHARA AND YAMASAKI: SUBJECTIVE FUNCTIONALITY AND COMFORT PREDICTION 6733
+Fig. 4. Overview of our framework.
+Fig. 5. Examples of input images (ﬁrst column on the left), inferred semanti-
+cally segmented images (second column), extracted graphs (third column), and
+grand truth segmented images (forth column).
+C. Overview of Our Datasets
+Figure 4 shows an overview of our framework. To predict
+subjective scores only from the real-estate ﬂoor plan images, we
+prepared three sets of ﬂoor plan images without any overlaps to
+avoid bias for network models’ training.
+The ﬁrst set of 1,000 images (dataset A) was used for the
+dataset with subjective scores and to train our prediction model
+in Section IV.
+The second set with 3,800 images (dataset B) was used to
+obtain the network that outputs segmented images from the
+ﬂoor plan images as input, which as explained in Section III-B.
+We also used dataset B to train an ImageNet-pretrained feature
+extractor network using color-coded semantically segmented
+images, as shown in bottom left of Figure 4. We additionally
+developed this network since our proposed network in Figure 8
+explained in Section IV-C shows improved performance using
+the new weights ﬁne-tuned by this network for ResNet50 [79]
+instead of using the weights only pre-trained on ImageNet on
+segmented images. The network was based on ResNet50 and
+used the segmented image as input. It was pre-trained ﬁrst usingImageNet and then ﬁne-tuned for the multi-task classiﬁcation
+task to predict the number of rooms of the 13 room types,
+excluding the wall and unknown elements, from the 15 types
+deﬁned in Section III-B.
+Finally, we predicted subjective scores using our model from
+a separate set of 1,535 ﬂoor plan images (hereafter, “dataset C”;
+please see Figure 4), and it was also used for our proposed apart-
+ment search tool in Section VI.
+IV . P ROPOSED METHODS
+In this section, we introduce our prediction model. We propose
+to use two types of inputs for the model: ﬂoor plan images and
+structured data features. For the images, we used both ﬂoor plan
+images and semantically segmented images from Section III. In
+Section IV-A, we explain our method to extract four features
+from the structured data based on graphs and metadata of ﬂoor
+plans. The image features are described in Section IV-B. In Sec-
+tion IV-C, we introduce our prediction model in detail.
+A. Features
+1) Emerging Subgraphs: To extract frequently appearing
+common subgraphs that are very important and contribute to
+either higher or lower evaluation scores for each question re-
+garding the ﬂoor plans, we ﬁrst performed frequent subgraph
+mining on a total of 1,000 graphs in dataset A using graph-based
+substructure pattern mining (gSpan) [80]. For the condition to
+evaluate subgraph isomorphism, we considered node attributes
+that represent the room types for graph matching. The edge at-
+tributes that represent door and window types were not consid-
+ered. As a result, 162,470 subgraphs were extracted by setting
+the minimum support threshold to 5 (i.e., the condition for ex-
+tracting the common subgraph corresponding to at least ﬁve out
+of 1,000). The following three steps were further performed to
+extract subgraphs that are more relevant to each subjective score.
+Step 1: For each question from Q1 to Q9 and the “Total Score”
+from Section III-A (ten items in total), common subgraphs that
+were included in the ﬂoor plan graphs with evaluation scores
+of the top and bottom 10% were extracted and separated into a
+total of 20 classes. We further narrowed down the selection of
+subgraphs by setting the following three thresholding strategies.
+
+===== PAGE 6 =====
+6734 IEEE TRANSACTIONS ON MULTIMEDIA, VOL. 25, 2023
+Fig. 6. Examples of emerging subgraphs frequently found in ﬂoor plans having
+a high Q2 (modernity) score (top row). The top left also appears in Figure 1 a
+(circled in red). Examples found in ﬂoor plans having a low Q4 (connectivity)
+(bottom left & middle) and a Q9 (privacy) score (bottom right).
+First, the minimum support threshold was set to 10. Second, the
+average score of the apartments that contain the target subgraph
+should be 0.25 or larger for those in the top 10% classes and
+−0.25or lower for those in the bottom 10% classes. Third, we
+also used the growth rate (GR), which is widely used for discov-
+ering discriminative patterns in emerging pattern mining [81].
+The ratio between GR for the top 10% and that for the bottom
+10% should be larger than 4 or smaller than 1/4. These thresh-
+olds were set by our empirical study.
+Step 2: To further extract relevant common subgraphs in the
+above 20 classes, we considered identiﬁcation numbers of ex-
+tracted subgraphs as “words” in 20 different “documents.” Then,
+we performed term frequency - inverse document frequency
+(TF-IDF), which evaluates how relevant a word (subgraph) is
+to a document (class) in a collection of documents (classes that
+represent each question). Based on the obtained TF-IDF weights,
+we sorted important subgraphs that are relevant to the top or bot-
+tom 10% of ﬂoor plans evaluated based on a speciﬁc question
+in each class. The use of TF-IDF helped eliminate frequently
+appearing subgraphs found in multiple classes that are not yet
+relevant to any speciﬁc class.
+For any subgraph that included other subgraphs (i.e., inclusion
+dependency) within the same class, subgraphs with a minimum
+number of nodes were always kept. If the larger-size subgraph
+in the top 10% class has a larger mean evaluation score than
+those of the minimum-size subgraphs deﬁned above, it is also
+kept (and vice-versa for the bottom 10% classes).
+Step 3: We sorted all the extracted subgraphs from the previ-
+ous steps based on the mean evaluation score in each class and
+obtained the top 20 subgraphs for each of the 20 classes. By
+eliminating duplicates that appeared in multiple classes from
+a total of 400 extracted emerging subgraphs, we obtained 230
+unique emerging subgraphs. For each ﬂoor plan in the dataset,
+a 230-dimensional feature vector that contained 0 or 1 based
+on the absence or presence of 230 emerging subgraphs, respec-
+tively, were extracted.
+Figure 6 shows examples of the emerging subgraphs that were
+extracted using the above three steps. The subgraph on the top
+Fig. 7. The main ﬁve types of subgraphs for wet areas that make up 76% of all
+ﬂoor plans. Two subgraphs that include the linkage (wc)-(wash)-(bath), circled
+in red, have lower mean scores for Q5 (wet areas) than the others.
+left is a triangle graph connecting (wbed)-(dk)-(balc) as a sub-
+graph that appears in the top 10% of the Q2 (modernity) class.
+For example, the ﬂoor plan in Figure 1 a includes this subgraph
+and has a very high evaluation score for Q2. It represents the wide
+balcony space that is open to both the bedroom and kitchen and is
+often considered a contemporary layout among Japanese apart-
+ments (advertised as a “wide-span balcony”). The subgraph with
+two nodes, (dk)-(bath), was in the class representing the bottom
+10% of the Q4 (adjacency and connectivity) class (bottom left in
+Figure 6). This has a bathroom door that immediately opens to a
+living room, allowing anyone to enter a communal space directly
+after taking a bath, which is not considered desirable. Adding a
+washing room between the two nodes is a common practice in
+Japan, as it provides a room to change clothes before entering
+the bathroom. This subgraph was also included in the class for
+the bottom 10% for the Q9 (privacy) class. Our method was able
+to extract emerging subgraphs representing such characteristics
+of ﬂoor plans in 20 classes.
+2) Subgraphs for Wet Areas: Wet areas are particularly im-
+portant because they are more personal spaces. Therefore, spe-
+cial attention was paid to them. For each ﬂoor plan in dataset A, a
+connected subgraph containing rooms related to the usage of wa-
+ter, including dining kitchen (dk), washroom (wash), bathroom
+(bath), and restroom (wc), was extracted. Any nodes bridging
+the above four nodes such as a corridor (corri) that were neces-
+sary to form a single connected subgraph that contained all four
+of the above nodes were also included depending on the ﬂoor
+plan layouts. If there were more than two such bridging nodes
+and only one node was sufﬁcient to form a connected subgraph,
+the node that served a communal use or as circulation, such as
+
+===== PAGE 7 =====
+NARAHARA AND YAMASAKI: SUBJECTIVE FUNCTIONALITY AND COMFORT PREDICTION 6735
+corridor, was selected over a node use for a private purpose,
+such as a bedroom. In total, 162 unique subgraph types for
+water-related rooms were extracted. Out of all the ﬂoor plans,
+76% belonged to the ﬁve types. 120 types of subgraph appeared
+only once and therefore they were discarded. As a result, 42
+subgraph types were used in this study.
+Two out of the ﬁve remaining types of subgraphs included
+three nodes that were directly linked: (wc)-(wash)-(bath). How-
+ever, this is not a desirable layout, as its circulation paths for
+(wc) and (bath) crisscross at the washing room (Figure 7). It
+forces one to enter (wash) while someone else is still present
+after using either room. The mean evaluation scores for Q5 (wet
+areas) for those two types were lower (0.171 and 0.208) than the
+mean scores from the other three types (0.330, 0.296, and 0.249).
+As a result, we extracted a 42-dimensional one-hot feature vec-
+tor based on the presence of the 42 types of subgraphs for wet
+areas.
+3) Feature Based on MCS Graph Similarity: The similar-
+ity between graphs of all 800 ﬂoor plans in the training set of
+dataset A was calculated based on the method described in [17],
+[82], [83] using the maximum common subgraph (MCS) as a
+graph similarity measure. The similarity was 1 when the two
+graphs perfectly matched, and 0 when there were no com-
+mon parts. Any input graph could be expressed by an 800-
+dimensional vector that represents distances from each of the
+800 graphs in the training set of the dataset A. We used this
+vector based on the MCS similarity to extract a feature that rep-
+resented an entire (global) characteristic of each apartment, as
+opposed to a local sub-structure from a subgraph.
+4) Feature Based on Metadata: In addition to the above three
+features extracted from graph structures, we listed areas and
+numbers of room types using the metadata for each ﬂoor plan.
+This resulted in 30-dimensional feature vectors that represented
+the areas and numbers of room types.
+From the above, we obtained four feature vectors that repre-
+sented structured data based on emerging subgraphs, subgraphs
+for wet areas, MCS graph similarity, and metadata. All feature
+vectors were standardized before using them for machine learn-
+ing (see the next section) such that their distributions had a mean
+value of 0 and a standard deviation of 1.
+B. Image Features
+We also fed the network two types of images: ﬂoor plan
+images and consistently color-coded semantically segmented
+images (prepared for the automated graph generation in Sec-
+tion III). The inputs to the network were two sets of RGB images
+of resolution 224×224.
+First, for the ﬂoor plan images, using ResNet50 [79] pre-
+trained on ImageNet [84], a 2,048-dimensional vector of the
+pool5 layer was extracted from deep features of the images.
+Then, a new fully connected (FC) layer was added in place of
+the original one.
+Second, for the segmented images, we used the same net-
+work architecture, but the network was pre-trained ﬁrst using
+ImageNet and then ﬁne-tuned for the multi-task classiﬁcation
+task to predict the number of rooms of the 13 room types, ex-
+cluding walls and unknown elements, from the 15 types deﬁned
+Fig. 8. Proposed network architecture.
+in Section III-B. Similarly, a 2,048-dimensional vector of the
+pool5 layer was extracted.
+Two features extracted from the two sets of images described
+above were also added in the same manner as above, followed by
+the FC, batch normalization (BN) [85], and dropout [86] layers.
+Finally, these two added features from the structured data and
+images were added again, followed by the FC and dropout layers.
+The ﬁnal FC layer generated a value predicting the score (see
+Figure 8 for details). For the FC layers, we used Leaky ReLu
+[89] as an activation function.
+C. Prediction Model
+Figure 8 shows our proposed network architecture to predict
+the evaluation scores from Q1 to Q9 and the “Total Score” (ten
+separate models in total).
+Two features based on emerging subgraphs (IV-A1) and sub-
+graphs for wet areas (IV-A2) were concatenated into one 272-
+dimensional vector, which was reduced to 256 dimensions using
+a FC layer. The 800-dimensional feature vector from the MCS
+graph similarity (IV-A3) and the 30-dimensional feature based
+on metadata, such as areas and numbers of room types (IV-A4),
+were also reduced to 256 dimensions using FC layers. Then, the
+above three input features were added, followed by the FC, BN,
+and dropout layers. The latter two layers were added to improve
+generalization and to reduce overﬁtting.
+V. E XPERIMENTS
+We used the dataset created in Section III and divided it
+into 800 ﬂoor plans for training, 100 for validation, and 100
+for testing. We trained ten separate models for predicting ten
+scores using the network in Section IV-C because it is better
+than multi-task learning using a single model in our preliminary
+experiment. Regression models were created for each using the
+mean squared error (MSE) as a loss function, and we trained
+these networks using 800 training images. We applied the Mo-
+mentum Stochastic Gradient Descent (SGD) algorithm to train
+
+===== PAGE 8 =====
+6736 IEEE TRANSACTIONS ON MULTIMEDIA, VOL. 25, 2023
+models with a batch size of 20, a learning rate of 10−3, a de-
+cay rate of 2.86×10−5, and a momentum of 0.9 for the 35
+epochs. The system was implemented using Keras.3We applied
+the pearson correlation coefﬁcient (PCC) to measure the correla-
+tion between the predicted values and the evaluation scores from
+the dataset as ground truths for 100 ﬂoor plans in the test data.
+We also used the root-mean-squared error (RMSE) to evaluate
+the performance. We repeated the above process ﬁve times using
+a different randomly selected set of 800 training, 100 validation,
+and 100 test ﬂoor plans each time, and used the mean values of
+all ﬁve results as the ﬁnal PCCs for the proposed as well as the
+following comparative baseline models, which were prepared to
+compare and verify the prediction results.
+A. Baseline Methods
+As baseline methods, we prepared the following seven mod-
+els, of which ﬁve models use DNNs by subtracting one of ﬁve
+input features from the proposed network in Figure 8:rImages Only: The model with only two input features based
+on ﬂoor plans and color-coded semantically segmented im-
+ages.rw/o SubG: The model without the input features based on
+subgraphs for emerging (IV-A1) and for wet areas (IV-A2).rw/o MCS: The model without the input features based on
+MCS graph similarity (IV-A3).rw/o Meta: The model without the input features based on
+metadata such as area and number of room types (IV-A4).rw/o Img: The model without the features for ﬂoor plan
+images.rw/o Segm: The model without the input features based on
+consistently color-coded semantically segmented images.rUpper Bound: The model’s network architecture is identi-
+cal to the proposed model. However, the dataset based on
+GT segmented images and GT graphs was used for training
+and testing of the model as the best case, instead of using
+inferred segmented images and extracted graphs used in
+our proposed model explained in Section III-B)
+B. Results
+1) Segmentation Performance: First, we discuss the accu-
+racy of the semantic segmentation using dataset B introduced
+in III-B. The number of train/validation/test data were set to
+3040/380/380, respectively, and we trained the segmentation
+prediction network model to learn the correspondence between
+the ﬂoor plan images and the GT label masks using the train-
+ing and validation data. After the training, the test data was
+used for evaluation with a metric mean intersection over union
+(IoU) [87] deﬁned by (1), where ncis the number of classes,
+tiis the total number of pixels belonging to class i, and
+njis the total number of predicted as class jbelonging to
+class i.
+mean IoU =1
+ncnc∑
+i=1nii
+ti+∑nc
+i′=1ni′i−nii. (1)
+3[Online]. Available:https://keras.ioThe mean IoU for the test data was 82.1%, and the average
+mean accuracy was 89.0% for the test set. Although the seg-
+mentation accuracy is not perfect, it is acceptable considering
+the prediction accuracy of functionality and comfort prediction
+as discussed below.
+2) Performance Comparison: To evaluate the performance
+of each model, we used two metrics, namely PCC and RMSE.
+Table I shows the PCC results of both the proposed and baseline
+models using the test set of dataset A, and Table II shows the
+RMSE values. Note that a higher PCC and a lower RMSE mean
+better prediction performance. Our proposed model, which uses
+all features extracted from the structured data, ﬂoor plan im-
+ages, and segmented images, outperformed all the comparative
+baseline models in terms of the mean value of PCCs from all
+ten criteria (0.701) and recorded the highest PCC for nine out of
+ten criteria (Table I). While we used ResNet50, which is known
+for its high performance in a wide range of image-recognition
+tasks, the naive approach only using two sets of images, The
+Images Only model, has a lower mean value of PCCS, 0.491.
+Therefore, it can be inferred that the network compensates for
+the weakness of each feature by combining them. The PCC val-
+ues for our proposed model were over 0.7 for ﬁve criteria (Q1 =
+0.721, Q2 =0.793, Q3 =0.776, Q6 =0.751, and Total Score
+=0.794), and over 0.8 for the “privacy” criteria (Q9 =0.816).
+Table II also shows that our proposed model outperforms base-
+line models with the lowest mean value of RMSEs from all ten
+criteria.
+We carried out the statistical signiﬁcance tests to determine
+whether PCCs and RMSEs between the proposed and baseline
+models are statistically signiﬁcant or not. Following the recom-
+mended procedure in Section 7.6.1 of ITU-T Rec. P.1401 [88],
+the statistical signiﬁcance tests for PCC use statistics derived
+from Fisher’s z-transformed correlation coefﬁcients in each
+comparison, compared with the 95% two-tailed Student’s t-test
+critical value. In Table I, we have used an asterisk to denote
+the case when 0.05 signiﬁcance level of difference compared to
+the proposed model’s PCC is found. Table III shows p-values
+from Images Only and Upper Bound models. Our multimodal
+network model outperformed the Images Only model with p-
+values >0.05 in eight out of ten criteria (all criteria except for
+Q5 and Q8) (Table III).
+The statistical signiﬁcance tests for the differences in RMSEs
+were also performed, following the recommended procedure in
+Section 7.6.4 of ITU-T Rec. P.1401 [88]. In Table II, we have
+used an asterisk to the RMSE values to denote the case when sig-
+niﬁcant differences between the proposed model’s RMSEs are
+found. The RMSEs from our proposed model and the Images
+Only model were signiﬁcantly different in eight out of ten cri-
+teria (all criteria except for Q5 and Total Score), indicating that
+the improvements using our multimodal network are statistically
+signiﬁcant. Only Q5 (Wet Areas) does not show signiﬁcant im-
+provement using our model suggested by the differences in both
+PCC and RMSE values. As stated in Section IV-A2, subgraphs
+for wet areas have fewer pattern variations than other features,
+which may make prediction of the Q5 (Wet Areas) score more
+difﬁcult. The test also suggests that our model is statistically
+signiﬁcantly better than the model without the features for ﬂoor
+
+===== PAGE 9 =====
+NARAHARA AND YAMASAKI: SUBJECTIVE FUNCTIONALITY AND COMFORT PREDICTION 6737
+TABLE I
+PREDICTION ACCURACY COMPARISON .VALUES ARE IN TERMS OF PEARSON CORRELATION COEFFICIENTS (PCC). B LACK CELLS REPRESENT PCC>0.7 AND GRAY
+CELLS INDICATE PCC<0.7. S TATISTICAL SIGNIFICANCE BETWEEN PROPOSED AND BASELINE MODELS WEREDETERMINED BY A T-T EST
+TABLE II
+ROOT-MEAN-SQUARED ERROR (RMSE) C OMPARISON
+TABLE III
+SIGNIFICANCE OF THE DIFFERENCE IN PCC SCOMPARED TO THE PROPOSED
+MODEL ’SPCC S.VALUES ARE IN TERMS OF P-V ALUES
+plan images, w/o Img, in ﬁve out of ten criteria, including Q1,
+Q3, Q5, Q7, and Q8. The results indicate that the use of both fea-
+tures based on images and structured data extracted from graphs
+contributes to the improvement in prediction accuracy.
+The differences in PCC and RMSE values between the pro-
+posed and Upper Bound models are not signiﬁcant, indicating
+that the performance drops caused by the use of graphs extracted
+from inferred segmented images, instead of the GT graphs de-
+scribed in Section III-B, are not signiﬁcant (average difference
+in PCCs from nine questions is 0.046). Our model can automat-
+ically generate all input features from ﬂoor plan images alone
+as inputs using the processes in Section III-B to extract seg-
+mented images and graphs, allowing us to develop the search
+tool described in Section VI without the time-consuming and
+labor-intensive manual annotation process for segmented im-
+ages. We also tested the prediction accuracy of our proposed
+Fig. 9. Success and failure cases from our model’s prediction results. While
+both ﬂoor plans in the top row have high ground-truth scores for Q2 Modernity
+in our dataset, the prediction error for the top-left was lower than the prediction
+error for the top-right, indicating a more successful prediction result.
+network architecture trained and tested using a dataset based on
+raw values rated by the participants as evaluation scores, instead
+of using standardized evaluation scores in our dataset explained
+in Section III-A. We found no statistically signiﬁcant difference
+in PCC and RMSE values between the two datasets (i.e., average
+PCC was 0.699 using raw score values and 0.701 using ours).
+3) Success and Failure: Figure 9 depicts some success and
+failure examples from our prediction results for Q2 Modernity
+scores. Here, “success” means that the prediction error between
+the predicted score and the ground-truth score from the dataset is
+
+===== PAGE 10 =====
+6738 IEEE TRANSACTIONS ON MULTIMEDIA, VOL. 25, 2023
+Fig. 10. The proposed apartment search tool.
+lower. It is inferred that if similar ﬂoor layouts are included in the
+proposed network’s training data, prediction errors would likely
+be reduced. If the ﬂoor plans are rare or uncommon examples that
+do not exist in the training set, prediction errors could increase.
+In conclusion, although the measurement of the functionality
+of ﬂoor plans is a very subjective problem, our proposed predic-
+tion models are able to achieve a very strong correlation with
+human evaluation.
+VI. A PPLICATION TO ONLINE PROPERTY SEARCH
+A. Implementation
+We introduce a new interface for an apartment search tool
+that implements functionality and comfort as query items. In
+addition to a common search interface based on user selection
+of the number of bedrooms and a range of areas, our tool offers
+importance sliders with adjustable weights for importance in
+three levels: 0 (none); ×1(important); and ×2(very important),
+for nine subjective criteria (see Figure 10). After a user presses
+the search button, the tool calculates the scores for all ﬂoor plans
+based on the weighted sum of the predicted subjective values
+using the information from the sliders, and displays the scores
+in ranked order. This feature allows a user to search apartments
+based on a controlled weighted priority for qualitative criteria
+(i.e., extremely spacious apartments with sufﬁcient privacy and
+storage spaces).
+For our proposed search tool’s ﬂoor plan database, we
+prepared a new set of 1,535 ﬂoor plan images that include
+apartments with one, two, three, and four or more bedrooms inbalanced proportions (dataset C). These images were completely
+unbiased and were not previously used in this study. Using the
+pre-trained network using DeepLab v3+ and the rule-based
+method in Section III-B, we obtained the 1,535 corresponding
+segmented images and graphs. Next, we executed the procedures
+outlined in Sections IV-A and IV-B to extract the ﬁve features
+from these images, which were then used to obtain the predicted
+attractiveness scores for the nine criteria for each of the 1,535
+ﬂoor plans using the best model (i.e., the one with the highest
+PCC) from the proposed network introduced in Section IV-C.
+B. Procedure
+We evaluated our method through a large-scale user study.
+Among the 200 participants recruited through a crowdsourcing
+service, we removed three who chose the same rating for all
+questions (i.e., “straight-lining”) and another six who did not
+complete the survey to obtain a ﬁnal count of 191 participants
+with a wide variety of attributes. Out of the 191 participants, 81
+identiﬁed themselves as male and 109 as female. The numbers of
+participants in their 20 s, 30 s, 40 s, 50 s, and over 60 were 30, 78,
+53, 20, and 4, respectively. Of the total, 38 lived alone at the time
+of the experiment, while 81 participants were married. While
+115 lived in urban areas, 60 lived in suburban areas, and 11 in
+rural areas. Participants were required to answer all questions to
+complete the task. Incomplete responses were not included in
+the study. We veriﬁed that all histograms of responses for 5-point
+Likert scale questions were approximately normally distributed,
+and that no isolated peaks with unusual values were found.
+To make the study task realistic and provide internal motiva-
+tion, we prepared hypothetical scenarios with different demands
+from ﬁve unique families and asked participants to search ﬁve
+apartments for each scenario. We set the scenarios based on
+ﬁve completely different family structures to avoid demographic
+background bias of the participants.r“You are a married couple, and your two children need
+their own rooms soon. You want a functional ﬂoor plan
+layout and don’t want to pay extra for unnecessarily large
+spaces.”r“You are a family of ﬁve, living with one child and your
+spouse’s parents. A well-functioning home with large stor-
+age spaces, kitchen, and wet areas are your top priority
+since you have a big family.”r“Due to the COVID-19 pandemic, you have been working
+from home and would like to have your own study room.
+You and your spouse want to have separate rooms to respect
+each other’s privacy.”r“You live with your signiﬁcant other before marriage and
+would like to share a large spacious room with your partner
+and stay together as much as possible.”r“You and your partner are a young couple and hope to have
+at least one child in the future. You prefer to have a large
+balcony for your family to spend the weekend together.”
+We assigned these tasks using both our proposed tool and
+another baseline tool. The baseline tool represented commonly
+available real estate portal sites without our proposed features,
+
+===== PAGE 11 =====
+NARAHARA AND YAMASAKI: SUBJECTIVE FUNCTIONALITY AND COMFORT PREDICTION 6739
+TABLE IV
+THEDIRECT COMPARISON QUESTIONS WEREASKED ON A 5-POINT LIKERT
+SCALE .AH IGHER SCORE INDICATED A PREFERENCE FOR OURPROPOSED
+TOOL,WHILE A LOWER SCORE INDICATED A PREFERENCE FOR THE BASELINE
+TOOL.AS CORE OF 3INDICATED NOPREFERENCE
+featuring a search interface for a user to select the number of bed-
+rooms and a range of areas. We studied major real estate portal
+sites4567, and found the above two items as common search fea-
+tures. The differences between the proposed and baseline tool
+are that the baseline tool has an identical interface except that
+it does not have functionality- and comfort-related options. As
+we wanted participants to focus on analyzing information only
+readable from ﬂoor plans to enable a fair comparison with our
+proposed tool, we excluded other common search features based
+on the location and cost of properties. The study employed a
+within-participant design in which participants used both tools
+(counterbalanced across participants) and provided feedback on
+them.
+Participants were asked to search ﬁve apartments that met
+needs of each of the ﬁve scenarios using one tool, and then switch
+to the other tool for the same search (with the order of tool coun-
+terbalanced across participants). After completing both search
+tasks, participants completed a post-experiment survey. The sur-
+vey asked participants to directly compare their experience with
+the proposed tool to the baseline tool in ﬁve Likert-scale ques-
+tions (shown in Table IV). We also asked them to rate 50 se-
+lected ﬂoor plans (i.e., ﬁve plans ×ﬁve scenarios ×two tools)
+in a ﬁve-grade score on a scale of 1 (very unsatisﬁed) to 5 (very
+satisﬁed) (i.e., each participant gave a score of 1 to 5 for each
+retrieved ﬂoor plan image.).
+C. Results
+Overall, it can be observed that the participants showed a
+signiﬁcant preference for our proposed tool in response to all ﬁve
+direct comparison questions in Table IV. For each question, 95%
+conﬁdent intervals of mean scores are indicated. In addition, a
+one-sample one-tailed t-test (p <0.05) was used to evaluate
+whether the mean responses are greater than 3 (i.e., a score of
+3 indicates no preference) at the signiﬁcance level. Participants
+appreciated the proposed tool as well. Compared to the baseline
+tool, it helped them ﬁnd signiﬁcantly more desirable ﬂoor plans
+4[Online]. Available:https://lifull.com
+5[Online]. Available:https://www.livable.co.jp
+6[Online]. Available:https://suumo.jp
+7[Online]. Available:https://www.redﬁn.comTABLE V
+THE5-G RADE RATINGS OF ALLFLOOR PLANS SELECTED BY PARTICIPANTS
+USING TWOMETHODS
+(M=4.03, 95% CI[3.90, 4.17], p =4.9×10−34<0.001), and
+gave them a signiﬁcantly more enjoyable experience (M =3.97,
+95% CI[3.83, 4.11], p =1.92×10−30<0.001).
+Even though the participants spent a longer average time to
+complete a search task using the proposed tool (M =158.0 s,
+median =131 s, SD =105.7 s) than the baseline tool (M =
+129.0 s, median =105 s, SD =97.4 s), the result from the direct
+comparison question shows that participants felt that they found
+the desired ﬂoor plans faster using the proposed tool (M =3.84,
+95% CI[3.67, 4.01], p =1.1×10−18<0.001). The number of
+clicks on buttons per search increased using the proposed tool (M
+=18.3, median =17, SD =7.6) compared to the baseline tool
+(M=13.2, median =12, SD =5.9). These results show that our
+proposed tool required more time and mouse clicks for users due
+to additional features that are not included in the baseline tool
+(e.g., importance sliders). However, these additional features did
+not lead them to believe that the proposed system is harder to use.
+Participants felt that the proposed tool made the task signiﬁcantly
+easier (M =3.76, 95% CI[3.60, 3.93], p =2.5×10−16<0.001)
+and more intuitive (M =3.43, 95% CI[3.25, 3.62], p =7.0×
+10−6<0.001). The longer search time and additional operations
+did not make them feel burdened with tasks, and they preferred
+the proposed tool over the baseline one.
+In Table V, the 5-grade ratings of all ﬂoor plans selected
+by participants also indicated that they were signiﬁcantly more
+satisﬁed with their selections using the proposed tool than
+the baseline one (M(proposed) =4.01, M(baseline) =3.75,
+p=1.67×10−40<0.001). To compute the p-value, we used an
+independent two-sample one-tailed t-test, and the mean score for
+selected ﬂoor plans by participants using our proposed tool was
+found to be signiﬁcantly higher than the mean score for selected
+ﬂoor plans using the baseline tool.
+VII. L IMITATIONS
+One limitation of our work is that predicted functionality and
+comfort scores do not come with explanations. People may have
+different opinions and viewpoints on such subjective scores, and
+visualizing how the system evaluates ﬂoor plan images would
+be preferred.
+Our proposed method has been applied only to apartment
+ﬂoor plans in Japan. As can be seen in the ﬁgures, the drawing
+styles employed in the ﬂoor plan images are very diverse; how-
+ever, the style employed in other counties may be more distinct.
+Therefore, the prediction model will need to be trained for each
+country. We expect that our segmentation and functionality and
+comfort prediction models can be used as pre-trained models for
+ﬁne-tuning, but this is left as a future work.
+
+===== PAGE 12 =====
+6740 IEEE TRANSACTIONS ON MULTIMEDIA, VOL. 25, 2023
+VIII. C ONCLUSION
+We created and analyzed a large-scale dataset based on sub-
+jective evaluation of real estate ﬂoor plan images using crowd-
+sourcing. Our proposed methods for extracting features from
+graph structures and images of ﬂoor plans proved to be effec-
+tive, as we obtained functionality and comfort prediction models
+with relatively high accuracy (PCC =0.701) for very subjective
+scores, which is essentially different from conventional image
+recognition tasks where the answer is apparent to all the evalu-
+ators. This study is the ﬁrst work to propose a highly accurate
+prediction model for dwelling functionality and comfort using
+machine learning. We applied the results of the prediction model
+to our new apartment search tool using functionality and comfort
+as query items, and our user study showed that our tool could
+provide a better user experience.
+REFERENCES
+[1] V . James, S. Wu, A. Gelfand, and C. Sirmans, “Apartment rent prediction
+using spatial modeling,” J. Real Estate Res. , vol. 27, no. 1, pp. 105–136,
+2005.
+[2] O. Poursaeed, T. Matera, and S. Belongie, “Vision-based real estate price
+estimation,” Mach. Vis. Appl. , vol. 29, no. 4, pp. 667–676, 2018.
+[3] M. Heidari, S. Zad, and S. Rafatirad, “Ensemble of supervised and
+unsupervised learning models to predict a proﬁtable business decision,”
+inProc. IEEE Int. IOT, Electron. Mechatronics Conf. , 2021, pp. 1–6.
+[4] H. Seya and D. Shiroi, “A comparison of residential apartment rent price
+predictions using a large data set: Kriging versus deep neural network,”
+Geograph. Anal. , vol. 54, no. 2, pp. 239–260, 2022.
+[5] T. Yamasaki, J. Zhang, and Y . Takada, “Apartment structure estimation
+using fully convolutional networks and graph model,” in Proc. ACM
+Workshop Multimedia Real Estate Tech. , 2018, pp. 1–6.
+[6] S. Law, B. Paige, and C. Russell, “Take a look around: Using street view
+and satellite images to estimate house prices,” ACM Trans. Intell. Syst.
+Technol. , vol. 10, no. 5, Sep. 2019, Art. no. 54.
+[7] M. Zeppelzauer, M. Despotovic, M. Sakeena, D. Koch, and M. Döller,
+“Automatic prediction of building age from photographs,” in Proc. ACM
+Int. Conf. Multimedia Retrieval , 2018, pp. 126–134.
+[8] J. H. Bappy, J. R. Barr, N. Srinivasan, and A. K. Roy-Chowdhury, “Real
+estate image classiﬁcation,” in Proc. IEEE Winter Conf. Appl. Comput.
+Vis., 2017, pp. 373–381.
+[9] X. Wang, Y . Takada, Y . Kado, and T. Yamasaki, “Predicting the attractive-
+ness of real-estate images by pairwise comparison using deep learning,”
+inProc. IEEE Int. Conf. Multimedia Expo Workshops , 2019, pp. 84–89.
+[10] T. Hanazato, Y . Hirano, and M. Sasaki, “Syntactic analysis of large-size
+condominium units supplied in the Tokyo metropolitan area,” J. Architec-
+ture Plan. , no. 591, pp. 9–16, 2005.
+[11] A. Takizawa, K. Yoshida, and N. Katoh, “Applying graph mining to rent
+analysis considering room layouts,” J. Environ. Eng. (Trans. AIJ) , vol. 73,
+no. 623, pp. 139–146, 2008.
+[12] R. Hattori, K. Okamoto, and A. Shibata, “Visualizing the importance of
+ﬂoor-plan image features in rent-prediction models,” in Proc. Joint 11th
+Int. Conf. Soft Comput. Intell. Syst. 21st Int. Symp. Adv. Intell. Syst. , 2020,
+pp. 1–3.
+[13] R. Hattori, K. Okamoto, and A. Shibata, “Impact analysis of ﬂoor-plan
+images for rent-prediction model,” J. Jpn. Soc. Fuzzy Theory Intell.
+Informat. , vol. 33, no. 2, pp. 640–650, 2021.
+[14] K. Solovev and N. Pröllochs, “Integrating ﬂoor plans into hedonic models
+for rent price appraisal,” in Proc. Web Conf. , 2021, pp. 2838–2847.
+[15] G. Csurka, C. Bray, C. Dance, and L. Fan, “Visual categorization with
+bags of keypoints,” Proc. Workshop Stat. Learn. Comput. Vis. , 2004,
+pp. 1–22.
+[16] S. Sirmans, D. Macpherson, and E. Zietz, “The composition of hedonic
+pricing models,” J. Real Estate Literature , vol. 13, no. 1, pp. 1–44,
+2005.
+[17] Y . Takada, N. Inoue, T. Yamasaki, and K. Aizawa, “Similar ﬂoor plan
+retrieval featuring multi-task learning of layout type classiﬁcation and
+room presence prediction,” in Proc. IEEE Int. Conf. Consum. Electron. ,
+2018, pp. 1–6.[18] K. Naoki, Y . Toshihiko, A. Kiyoharu, and O. Takemi, “Users’ pref-
+erence prediction of real estates featuring ﬂoor plan analysis using
+ﬂoornet,” in Proc. ACM Workshop Multimedia Real Estate Tech. , 2018,
+pp. 7–11.
+[19] N. Kato, T. Yamasaki, K. Aizawa, and T. Ohama, “Users’ preference
+prediction of real estate properties based on ﬂoor plan analysis,” IEICE
+Trans. Inf. Syst. , vol. E103-D, no. 2, pp. 398–405, 2020.
+[20] M. Yamada, X. Wang, and T. Yamasaki, “Graph structure extraction from
+ﬂoor plan images and its application to similar property retrieval,” in
+Proc. IEEE Int. Conf. Consum. Electron. , 2021, pp. 1–5.
+[21] V . Trinh and R. Manduchi, “Semantic interior mapology: A toolbox for
+indoor scene description from architectural ﬂoor plans,” in Proc. 24th Int.
+Conf. 3D Web Technol., 2019, doi: 10.1145/3329714.3338141 .
+[22] N. Nauata, K.-H. Chang, C.-Y . Cheng, G. Mori, and Y . Fu-
+rukawa, “House-GAN: Relational generative adversarial networks
+for graph-constrained house layout generation,” in Proc. Eur. Conf.
+Comput. Vis. , 2020, pp. 162–177.
+[23] R. Hu et al., “Graph2plan: Learning ﬂoorplan generation from layout
+graphs,” ACM Trans. Graph. , vol. 39, no. 4, pp. 118–121, 2020.
+[24] S.-T. Yang et al., “Dula-Net: A dual-projection network for estimating
+room layouts from a single RGB panorama,” in Proc. IEEE/CVF Comput.
+Vis. Pattern Recognit. , 2019, pp. 3363–3372.
+[25] C. Lin, C. Li, and W. Wang, “Floorplan-jigsaw: Jointly estimating scene
+layout and aligning partial scans,” in Proc. IEEE/CVF Int. Conf. Comput.
+Vis., 2019, pp. 5674–5683.
+[26] C. Liu, J. Wu, and Y . Furukawa, “FloorNet: A uniﬁed framework for
+ﬂoorplan reconstruction from 3D scans,” in Proc. Eur. Conf. Comput.
+Vis., 2018, pp. 203–219.
+[27] C. Lin, C. Li, and W. Wang, “Floorplan-Jigsaw: Jointly estimating scene
+layout and aligning partial scans,” in Proc. IEEE Int. Conf. Comput. Vis. ,
+2019, pp. 5674–5683.
+[28] J. Chen, C. Liu, J. Wu, and Y . Furukawa, “Floor-SP: Inverse CAD for
+ﬂoorplans by sequential room-wise shortest path,” in Proc. IEEE Int.
+Conf. Comput. Vis. , 2019, pp. 2661–2670.
+[29] Y . Cui et al., “Automatic 3-D reconstruction of indoor environ-
+ment with mobile laser scanning point clouds,” IEEE J. Sel. Topics
+Appl. Earth Observ. Remote Sens. , vol. 12, no. 8, pp. 3117–3130,
+Aug. 2019.
+[30] A. Phalak, V . Badrinarayanan, and A. Rabinovich, “Scan2plan: Ef-
+ﬁcient ﬂoorplan generation from 3D scans of indoor scenes,” 2020,
+arXiv:2003.07356 .
+[31] K. Wang et al., “Planit: Planning and instantiating indoor scenes with
+relation graph and spatial prior networks,” ACM Trans. Graph. , vol. 38,
+no. 4, pp. 1–15, 2019.
+[32] G. Zhai and X. Min, “Perceptual image quality assessment: A survey,”
+Sci. China Inf. Sci. , vol. 63, no. 11, pp. 1–52, 2020.
+[33] X. Min et al., “Screen content quality assessment: Overview, benchmark,
+and beyond,” ACM Comput. Surv. , vol. 54, no. 9, pp. 1–36, 2021.
+[34] W. Zhou, X. Min, H. Li, and Q. Jiang, “A brief survey on adaptive video
+streaming quality assessment,” J. Vis. Commun. Image Representation ,
+2022, Art. no. 103526.
+[35] Q. Li, W. Lin, J. Xu, and Y . Fang, “Blind image quality assessment using
+statistical structural and luminance features,” IEEE Trans. Multimedia ,
+vol. 18, no. 12, pp. 2457–2469, Dec. 2016.
+[36] Q. Wu et al., “Blind image quality assessment based on rank-order regular-
+ized regression,” IEEE Trans. Multimedia , vol. 19, no. 11, pp. 2490–2504,
+Nov. 2017.
+[37] Z. Fan, T. Jiang, and T. Huang, “Active sampling exploiting reliable in-
+formativeness for subjective image quality assessment based on pairwise
+comparison,” IEEE Trans. Multimedia , vol. 19, no. 12, pp. 2720–2735,
+Dec. 2017.
+[38] H. Hofbauer, F. Autrusseau, and A. Uhl, “Low quality and recognition
+of image content,” IEEE Trans. Multimedia , vol. 24, pp. 3595–3610,
+2022.
+[39] Y . Li et al., “User-generated video quality assessment: A subjective and
+objective study,” IEEE Trans. Multimedia , early access, Oct. 29, 2021,
+doi:10.1109/TMM.2021.3122347 .
+[40] Y . Liu et al., “Video quality assessment with serial dependence
+modeling,” IEEE Trans. Multimedia , vol. 24, pp. 3754–3768, 2022,
+doi:10.1109/TMM.2021.3122347 .
+[41] J. Gutierrez et al., “Subjective evaluation of visual quality and simulator
+sickness of short 360 videos: ITU-T REC,” IEEE Trans. Multimedia ,
+vol. 24, pp. 3087–3100, 2021.
+[42] P. Lebreton and K. Yamagishi, “Predicting user quitting ratio in adaptive
+bitrate video streaming,” IEEE Trans. Multimedia , vol. 23, pp. 4526–4540,
+2021.
+
+===== PAGE 13 =====
+NARAHARA AND YAMASAKI: SUBJECTIVE FUNCTIONALITY AND COMFORT PREDICTION 6741
+[43] Y . Deng, C. C. Loy, and X. Tang, “Image aesthetic assessment: An exper-
+imental survey,” IEEE Signal Process. Mag. , vol. 34, no. 4, pp. 80–106,
+Jul. 2017.
+[44] G. Guo, H. Wang, C. Shen, Y . Yan, and H.-Y . M. Liao, “Automatic
+image cropping for visual aesthetic enhancement using deep neural
+networks and cascaded regression,” IEEE Trans. Multimedia , vol. 20,
+no. 8, pp. 2073–2085, Aug. 2018.
+[45] V . Hosu, B. Goldlücke, and D. Saupe, “Effective aesthetics prediction
+with multi-level spatially pooled features,” in Proc. IEEE/CVF Conf.
+Comput. Vis. Pattern Recognit. , 2019, pp. 9367–9375.
+[46] P. Lv et al., “User-guided personalized image aesthetic assessment based
+on deep reinforcement learning,” IEEE Trans. Multimedia , early access,
+Nov. 25, 2021, doi: 10.1109/TMM.2021.3130752 .
+[47] H. Zhu, Y . Zhou, L. Li, Y . Li, and Y . Guo, “Learning personalized
+image aesthetics from subjective and objective attributes,” IEEE Trans.
+Multimedia , early access, Nov. 02, 2021, doi: 10.1109/TMM.2021.31
+23468 .
+[48] Y . Bai, Z. Zhu, G. Jiang, and H. Sun, “Blind quality assessment of screen
+content images via macro-micro modeling of tensor domain dictionary,”
+IEEE Trans. Multimedia , vol. 23, pp. 4259–4271, 2021.
+[49] X. Lei, X. Qian, and G. Zhao, “Rating prediction based on social sen-
+timent from textual reviews,” IEEE Trans. Multimedia , vol. 18, no. 9,
+pp. 1910–1921, Sep. 2016.
+[50] F. Chen, R. Ji, J. Su, D. Cao, and Y . Gao, “Predicting microblog senti-
+ments via weakly supervised multimodal deep learning,” IEEE Trans.
+Multimedia , vol. 20, no. 4, pp. 997–1007, Apr. 2018.
+[51] R. Ji, F. Chen, L. Cao, and Y . Gao, “Cross-modality microblog sentiment
+prediction via bi-layer multimodal hypergraph learning,” IEEE Trans.
+Multimedia , vol. 21, no. 4, pp. 1062–1075, Apr. 2019.
+[52] X. Lu, Z. Lin, H. Jin, J. Yang, and J. Z. Wang, “Rapid: Rating pictorial
+aesthetics using deep learning,” in Proc. Proc. 22nd ACM Int. Conf.
+Multimedia , 2014, pp. 457–466.
+[53] T. Li et al., “Data-driven affective ﬁltering for images and videos,” IEEE
+Trans. Cybern. , vol. 45, no. 10, pp. 2336–2349, Oct. 2015.
+[54] J. Yang et al., “Visual sentiment prediction based on automatic dis-
+covery of affective regions,” IEEE Trans. Multimedia , vol. 20, no. 9,
+pp. 2513–2525, Sep. 2018..
+[55] X. Yao et al., “Adaptive deep metric learning for affective image retrieval
+and classiﬁcation,” IEEE Trans. Multimedia , vol. 23, pp. 1640–1653,
+2021.
+[56] S. Ruan et al., “Color enhanced cross correlation net for image senti-
+ment analysis,” IEEE Trans. Multimedia , early access, Oct. 11, 2021,
+doi:10.1109/TMM.2021.3118208 .
+[57] Y . Su, W. Zhao, P. Jing, and L. Nie, “Exploiting low-rank latent
+Gaussian graphical model estimation for visual sentiment distri-
+bution,” IEEE Trans. Multimedia , early access, Jan. 06, 2022,
+doi:10.1109/TMM.2022.3140892 .
+[58] H. Zhang and M. Xu, “Multiscale emotion representation learning for
+affective image recognition,” IEEE Trans. Multimedia , early access, Jan.
+25, 2022, doi: 10.1109/TMM.2022.3144804 .
+[59] S. Zhang, S. Zhang, T. Huang, and W. Gao, “Speech emotion recognition
+using deep convolutional neural network and discriminant temporal pyra-
+mid matching,” IEEE Trans. Multimedia , vol. 20, no. 6, pp. 1576–1590,
+Jun. 2018.
+[60] T. Li and M. Ogihara, “Toward intelligent music information retrieval,”
+IEEE Trans. Multimedia , vol. 8, no. 3, pp. 564–574, Jun. 2006.
+[61] G. Irie, T. Satou, A. Kojima, T. Yamasaki, and K. Aizawa, “Affective
+audio-visual words and latent topic driving model for realizing movie
+affective scene classiﬁcation,” IEEE Trans. Multimedia , vol. 12, no. 6,
+pp. 523–535, Oct. 2010.
+[62] R. Teixeira, T. Yamasaki, and K. Aizawa, “Affective determination of
+video clips by low level audiovisual features -A dimensional and categorial
+approach,” Multimedia Tools Appl. , vol. 61, no. 1, pp. 21–49, 2011.
+[63] M. Soleymani, M. Pantic, and T. Pun, “Multimodal emotion recognition
+in response to videos,” IEEE Trans. Affect. Comput. , vol. 3, no. 2,
+pp. 211–223, Apr.–Jun. 2012.
+[64] T. Liu et al., “Sentiment recognition for short annotated GIFs us-
+ing visual-textual fusion,” IEEE Trans. Multimedia , vol. 22, no. 4,
+pp. 1098–1110, Apr. 2020.
+[65] Q. Fang, C. Xu, J. Sang, M. S. Hossain, and G. Muhammad,
+“Word-of-mouth understanding: Entity-centric multimodal aspect-opinion
+mining in social media,” IEEE Trans. Multimedia , vol. 17, no. 12,
+pp. 2281–2296, Dec. 2015.[66] W. Guo et al., “LD-Man: Layout-driven multimodal attention network
+for online news sentiment recognition,” IEEE Trans. Multimedia , vol. 23,
+pp. 1785–1798, 2021.
+[67] W. Nie, R. Chang, M. Ren, Y . Su, and A. Liu, “I-GCN: Incremen-
+tal graph convolution network for conversation emotion detection,”
+IEEE Trans. Multimedia , vol. 23, pp. 1785–1798, Oct. 8, 2021,
+doi:10.1109/TMM.2021.3118881 .
+[68] D. Liu et al., “Towards uniﬁed surgical skill assessment,” in Proc.
+IEEE/CVF Conf. Comput. Vis. Pattern Recognit. , 2021, pp. 9517–9526.
+[69] M. Redi, N. O’Hare, R. Schifanella, M. Trevisiol, and A. Jaimes, “6
+seconds of sound and vision: Creativity in micro-videos,” in Proc. IEEE
+Conf. Comput. Vis. Pattern Recognit. , 2014, pp. 4272–4279.
+[70] B. Xia, X. Wang, T. Yamasaki, K. Aizawa, and H. Seshime, “Deep neural
+network-based click-through rate prediction using multimodal features of
+online banners,” in Proc. IEEE 5th Int. Conf. Multimedia Big Data , 2019,
+pp. 162–170.
+[71] J. Ikeda, H. Seshime, X. Wang, and T. Yamasaki, “25th international
+conference on pattern recognition (ICPR),” in Proc. 25th Int. Conf. Pattern
+Recognit. , 2021, pp. 2995–3002.
+[72] S. Oyama and T. Yamasaki, “Visual clarity analysis and improvement
+support for presentation slides,” in Proc. IEEE 5th Int. Conf. Multimedia
+Big Data , 2019, pp. 421–428.
+[73] S. Yi, J. Matsugami, and T. Yamasaki, “Assessment system of presentation
+slide design using visual and structural features,” IEICE Trans. Inf. Syst. ,
+vol. E105-D, no. 3, pp. 587–596, 2022.
+[74] C. Liu, J. Wu, P. Kohli, and Y . Furukawa, “Raster-to-vector: Revisiting
+ﬂoorplan transformation,” in Proc. IEEE Int. Conf. Comput. Vis. , 2017,
+pp. 2214–2222.
+[75] Z. Zeng, X. Li, Y . K. Yu, and C.-W. Fu, “Deep ﬂoor plan recognition
+using a multi-task network with room-boundary-guided attention,” in
+Proc. IEEE/CVF Int. Conf. Comput. Vis. , 2019, pp. 9095–9103.
+[76] C. Mura, R. Pajarola, K. Schindler, and N. Mitra, “Walk2map: Extracting
+ﬂoor plans from indoor walk trajectories,” Comput. Graph. Forum , vol. 40,
+no. 2, pp. 375–388, 2021.
+[77] L.-C. Chen, G. Papandreou, I. Kokkinos, K. Murphy, and A. L. Yuille,
+“Deeplab: Semantic image segmentation with deep convolutional nets,
+atrous convolution, and fully connected CRFs,” IEEE Trans. Pattern Anal.
+Mach. Intell. , vol. 40, no. 4, pp. 834–848, Apr. 2018.
+[78] L.-C. Chen, Y . Zhu, G. Papandreou, F. Schroff, and H. Adam,
+“Encoder-decoder with atrous separable convolution for semantic image
+segmentation,” in Proc. Eur. Conf. Comput. Vis. , 2018, pp. 801–818.
+[79] K. He, X. Zhang, S. Ren, and J. Sun, “Deep residual learning for image
+recognition,” in Proc. IEEE Conf. Comput. Vis. pattern Recognit. , 2016,
+pp. 770–778.
+[80] X. Yan and J. Han, “gSpan: Graph-based substructure pattern mining,” in
+Proc. IEEE Int. Conf. Data Mining , 2002, pp. 721–724.
+[81] G. Dong and J. Li, “Efﬁcient mining of emerging patterns: Discovering
+trends and differences,” in Proc. 5th ACM SIGKDD Int. Conf. Knowl.
+Discov. Data Mining , 1999, pp. 43–52.
+[82] K. Ohara, T. Yamasaki, and K. Aizawa, “An intuitive system for searching
+apartments using ﬂoor plans and areas of rooms,” in Proc. 78th Nat. Conv.
+IPSJ , 2016, vol. 2016, pp. 311–312.
+[83] J. J. McGregor, “Backtrack search algorithms and the maximal common
+subgraph problem,” Softw.: Pract. Experience , vol. 12, no. 1, pp. 23–34,
+1982.
+[84] A. Krizhevsky, I. Sutskever, and G. E. Hinton, “ImageNet classiﬁcation
+with deep convolutional neural networks,” in Proc. Adv. Neural Inf.
+Process. Syst. , 2012, pp. 1097–1105.
+[85] S. Ioffe and C. Szegedy, “Batch normalization: Accelerating deep network
+training by reducing internal covariate shift,” in Proc. 32nd Int. Conf.
+Mach. Learn., 2015, pp. 448–456.
+[86] N. Srivastava, G. Hinton, A. Krizhevsky, I. Sutskever, and R. Salakhutdi-
+nov, “Dropout: A simple way to prevent neural networks from overﬁtting,”
+J. Mach. Learn. Res. , vol. 15, no. 1, pp. 1929–1958, 2014.
+[87] M. Everingham, L. Van Gool, C. K. Williams, J. Winn, and A. Zisserman,
+“The pascal visual object classes (voc) challenge,” Int. J. Comput. Vis. ,
+vol. 88, no. 2, pp. 303–338, 2010.
+[88] P. ITU-T, “Methods, metrics and procedures for statistical evaluation,
+qualiﬁcation and comparison of objective quality prediction models (p.
+1401),” 2020. [Online]. Available: http://handle.itu.int/11.1002/1000/
+14159
+[89] A. L. Maas et al., “Rectiﬁer nonlinearities improve neural network acoustic
+models,” in Proc. 30th Int. Conf. Mach. Learn. , vol. 30, no. 1, 2013, p. 3.
+
+===== PAGE 14 =====
+6742 IEEE TRANSACTIONS ON MULTIMEDIA, VOL. 25, 2023
+Taro Narahara (Member, IEEE) received the B.S.
+degree in mathematics from Waseda University,
+Tokyo, Japan, the M.Arch. degree from Washington
+University, St. Louis, MO, USA, the M.S. degree in
+design and computation from the Massachusetts Insti-
+tute of Technology, Cambridge, MA, USA, and the
+Doctor of Design degree from Harvard University,
+Cambridge, MA, USA. He is currently an Associate
+Professor with the Hillier College of Architecture and
+Design, New Jersey Institute of Technology, Newark,
+NJ, USA. Between 2018 and 2020, he was a Visiting
+Scholar with the ETH Zurich’s Institute of Technology in Architecture, Switzer-
+land, and with the Graduate School of Information Science and Technology,
+The University of Tokyo, Japan. His research interests include architectural de-
+sign and machine learning. Dr. Narahara is a member of ACM, SIGGRAPH,
+CAADRIA, and IEICE. He worked on award-winning projects such as the Mori
+Art Museum while associated with Gluckman Mayner Architects and Skidmore,
+Owings & Merrill LLP as a Licensed Architect.
+Toshihiko Yamasaki (Member, IEEE) received the
+B.S. degree in electronic engineering, the M.S. degree
+in information and communication engineering, and
+the Ph.D. degree from the The University of Tokyo,
+Japan, in 1999, 2001, and 2004, respectively. He is
+currently a Professor with the Department of Infor-
+mation and Communication Engineering, Graduate
+School of Information Science and Technology, The
+University of Tokyo. He was a JSPS Fellow for Re-
+search Abroad and a Visiting Scientist with Cornell
+University, Ithaca, NY , USA, from February 2011 to
+February 2013. His research interests include attractiveness computing based on
+multimedia Big Data analysis, pattern recognition, and machine learning. Dr.
+Yamasaki is a member of ACM, AAAI, IEICE, ITE, and IPSJ.
