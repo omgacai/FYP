@@ -107,13 +107,13 @@ export QA_GRAPH_SOURCE=gold_manual
 sbatch --array=0-3 slurm/qwen3vl_qa.sbatch
 ```
 
-### Evidence-and-reasoning prompt experiment
+### Condition-specific evidence-and-reasoning prompt
 
-For a fresh, separately named run, use the versioned prompt below. It asks for
-the scored answer plus cited graph node/edge IDs and one concise reasoning
-sentence. The runner preserves those fields and records whether the cited graph
-IDs exist; scoring still uses only the normalized `answer` field. Do not mix
-these outputs with the answer-only baseline.
+For a fresh, separately named run, the runner uses a purpose-built prompt for
+each input condition. Image-only output contains visual observations; graph
+conditions contain compact `R1` node and `E1` relation citations. The runner
+preserves these fields and validates graph citations when a graph is supplied;
+scoring still uses only the normalized `answer` field.
 
 ```bash
 export QA_QUESTIONS=~/vlm/data/manual20/questions/manual20_qa_v2_candidate.csv
@@ -121,13 +121,12 @@ export QA_OUTPUT_DIR=~/vlm/outputs/manual20_qa_v2_evidence/image_gold
 export QA_CONDITION=image_graph
 export QA_GRAPH_DIR="$QA_ANNOTATIONS_DIR"
 export QA_GRAPH_SOURCE=gold_manual
-export QA_PROMPT_VERSION=evidence_reasoning_v1
 sbatch --array=0-3 slurm/qwen3vl_qa.sbatch
 ```
 
-`answer_only_v1` remains the default prompt version. `evidence_reasoning_v1`
-uses a larger 160-token completion limit through the Slurm launcher to leave
-room for the citations and explanation.
+The runner records this prompt contract as `condition_specific_evidence_v1` and
+uses 512 completion tokens. Historical answer-only and UUID-citation runs are
+retained as prior experiments, but are no longer selectable by the runner.
 
 For Qwen/CubiGraph/EGTR graph conditions, set `QA_GRAPH_DIR` to a directory of
 canonical `<plan_id>.graph.json` files and change `QA_GRAPH_SOURCE`, then submit

@@ -28,7 +28,19 @@ async function jsonl(directory){
   return records;
 }
 
-function rawAnswer(record){return {prediction:record.parsed_answer??null,valid:Boolean(record.valid_output),raw_output:record.raw_output??'',model:record.model,graph_source:record.graph_source??null,evidence:record.evidence??null,reasoning:record.reasoning??null,evidence_valid:record.evidence_valid??null,evidence_errors:record.evidence_errors??null,score_only:false};}
+function evidenceDisplay(record){
+  if(!record.evidence||Array.isArray(record.evidence))return null;
+  try{
+    const graphText=record.prompt?.[1]?.content?.find(item=>item.type==='text'&&item.text.startsWith('Floor-plan graph;'))?.text;
+    if(!graphText)return null;
+    const graph=JSON.parse(graphText.slice(graphText.indexOf('\n')+1));
+    const nodes=Object.fromEntries(graph.nodes.map(node=>[node.id,`${node.id} — ${node.label}`]));
+    const edges=Object.fromEntries(graph.edges.map(edge=>[edge.edge_id,`${edge.edge_id} — ${nodes[edge.a]||edge.a} ↔ ${nodes[edge.b]||edge.b} (${edge.relation})`]));
+    return {node_ids:record.evidence.node_ids.map(id=>nodes[id]||id),edge_ids:record.evidence.edge_ids.map(id=>edges[id]||id)};
+  }catch{return null;}
+}
+
+function rawAnswer(record){return {prediction:record.parsed_answer??null,valid:Boolean(record.valid_output),raw_output:record.raw_output??'',model:record.model,graph_source:record.graph_source??null,evidence:record.evidence??null,evidence_display:evidenceDisplay(record),reasoning:record.reasoning??null,evidence_valid:record.evidence_valid??null,evidence_errors:record.evidence_errors??null,score_only:false};}
 function scoreAnswer(row){return {prediction:row.pred||null,valid:row.valid==='True',raw_output:'',model:null,graph_source:row.label.includes('gold_manual')?'gold_manual':null,evidence:null,reasoning:null,evidence_valid:null,evidence_errors:null,score_only:true};}
 
 async function loadV1(qaRoot,annotationRoot){
@@ -41,8 +53,8 @@ async function loadV1(qaRoot,annotationRoot){
   return {title:'V1 answer-only prompt',description:'Original 100-question Manual20 run with raw model outputs.',questions:questions(questionRows),answers,conditions:['image_only','image_and_graph','graph_only'],hasRawOutputs:true};
 }
 
-async function loadV2(resultBase,annotationRoot){
-  const runDirectory=path.join(resultBase,'manual20_qa_v2_evidence');
+async function loadV2(resultBase,annotationRoot,runName,title){
+  const runDirectory=path.join(resultBase,runName);
   const resultDirectory=path.join(runDirectory,'results');
   const questionFile=path.join(annotationRoot,'questions','manual20_qa_v2_candidate.csv');
   const questionText=await fs.readFile(questionFile,'utf8');
@@ -58,13 +70,13 @@ async function loadV2(resultBase,annotationRoot){
     const rawRecords=Object.values(answers).flatMap(records=>Object.values(records));
     const hasEvidenceReasoning=rawRecords.some(record=>record.evidence||record.reasoning);
     return hasEvidenceReasoning
-      ?{title:'V2 evidence + reasoning prompt',description:'Five-category v2 run with raw answers, cited evidence, and reasoning.',questions:questions(parseCsv(questionText)),answers,conditions:['image_only','image_graph','graph_only'],hasRawOutputs:true}
+      ?{title,description:'Five-category v2 run with raw answers, cited evidence, and reasoning.',questions:questions(parseCsv(questionText)),answers,conditions:['image_only','image_graph','graph_only'],hasRawOutputs:true}
       :{title:'V2 answer-only run',description:'Five-category v2 question set, but the SOC run used the earlier answer-only prompt. No evidence or reasoning was requested; rerun after syncing the updated QA runner.',questions:questions(parseCsv(questionText)),answers,conditions:['image_only','image_graph','graph_only'],hasRawOutputs:true};
   }
 
   const scoreText=await fs.readFile(path.join(resultDirectory,'qa_question_scores.csv'),'utf8');
   for(const row of parseCsv(scoreText)){const condition=V2_SCORE_LABELS[row.label];if(condition)answers[condition][row.question_id]=scoreAnswer(row);}
-  return {title:'V2 evidence + reasoning prompt',description:'Five-category v2 run; evaluator scores are loaded locally. Download raw JSONL shards to inspect citations and reasoning.',questions:questions(parseCsv(questionText)),answers,conditions:['image_only','image_graph','graph_only'],hasRawOutputs:false};
+  return {title,description:'Five-category v2 run; evaluator scores are loaded locally. Download raw JSONL shards to inspect citations and reasoning.',questions:questions(parseCsv(questionText)),answers,conditions:['image_only','image_graph','graph_only'],hasRawOutputs:false};
 }
 
 async function annotations(annotationRoot){return Promise.all((await fs.readdir(path.join(annotationRoot,'annotations'))).filter(name=>name.endsWith('.graph.json')).sort().map(async name=>{const annotation=JSON.parse(await fs.readFile(path.join(annotationRoot,'annotations',name),'utf8'));return {...annotation,imageName:annotation.image?.local_path?path.basename(annotation.image.local_path):annotation.image?.name};}));}
@@ -76,7 +88,8 @@ export function qaStore(annotationRoot,qaRoot){
     try{
       if(req.method!=='GET'){res.statusCode=405;return res.end('GET required');}
       const datasets={manual20_v1:await loadV1(qaRoot,annotationRoot)};
-      try{datasets.manual20_v2_evidence=await loadV2(path.dirname(qaRoot),annotationRoot);}catch(error){if(error.code!=='ENOENT')throw error;}
+      try{datasets.manual20_v2_evidence=await loadV2(path.dirname(qaRoot),annotationRoot,'manual20_qa_v2_evidence','V2 evidence + reasoning prompt (truncated)');}catch(error){if(error.code!=='ENOENT')throw error;}
+      try{datasets.manual20_v2_evidence_aliases_v2=await loadV2(path.dirname(qaRoot),annotationRoot,'manual20_qa_v2_evidence_aliases_v2','V2 compact-alias evidence + reasoning');}catch(error){if(error.code!=='ENOENT')throw error;}
       res.setHeader('Content-Type','application/json');
       res.end(JSON.stringify({annotations:await annotations(annotationRoot),datasets}));
     }catch(error){res.statusCode=400;res.setHeader('Content-Type','application/json');res.end(JSON.stringify({error:error.message}));}
