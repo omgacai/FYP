@@ -88,8 +88,9 @@ export function qaStore(annotationRoot,qaRoot){
     try{
       if(req.method!=='GET'){res.statusCode=405;return res.end('GET required');}
       const datasets={manual20_v1:await loadV1(qaRoot,annotationRoot)};
-      try{datasets.manual20_v2_evidence=await loadV2(path.dirname(qaRoot),annotationRoot,'manual20_qa_v2_evidence','V2 evidence + reasoning prompt (truncated)');}catch(error){if(error.code!=='ENOENT')throw error;}
+      try{datasets.manual20_v2_evidence=await loadV2(path.dirname(qaRoot),annotationRoot,'manual20_qa_v2_evidence','V2 condition-specific evidence prompt (v1)');}catch(error){if(error.code!=='ENOENT')throw error;}
       try{datasets.manual20_v2_evidence_aliases_v2=await loadV2(path.dirname(qaRoot),annotationRoot,'manual20_qa_v2_evidence_aliases_v2','V2 compact-alias evidence + reasoning');}catch(error){if(error.code!=='ENOENT')throw error;}
+      try{datasets.manual20_v2_condition_specific_v1=await loadV2(path.dirname(qaRoot),annotationRoot,'manual20_qa_v2_condition_specific_v1','V2 condition-specific evidence prompt (v1)');}catch(error){if(error.code!=='ENOENT')throw error;}
       res.setHeader('Content-Type','application/json');
       res.end(JSON.stringify({annotations:await annotations(annotationRoot),datasets}));
     }catch(error){res.statusCode=400;res.setHeader('Content-Type','application/json');res.end(JSON.stringify({error:error.message}));}

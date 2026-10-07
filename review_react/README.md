@@ -28,9 +28,14 @@ context and not an extracted graph result.
 
 When `../cluster_results/manual20_qa_v2_evidence/results/qa_question_scores.csv`
 and `../cubicasa_benchmark/questions/manual20_qa_v2_candidate.csv` are present,
-the **Evaluation set** selector also offers the v2 evidence-and-reasoning run.
-That download contains evaluator scores only, so raw output, evidence citations,
-and reasoning are unavailable until its JSONL shards are downloaded.
+the **Evaluation set** selector defaults to the v2 condition-specific
+evidence-and-reasoning prompt run. The raw JSONL shards enable inspection of
+model citations and reasoning; without them, the dashboard shows evaluator scores only.
+
+The current condition-specific prompt run is loaded automatically when
+`../cluster_results/manual20_qa_v2_condition_specific_v1/` is present. It is
+preferred by default and can show raw JSONL evidence and reasoning when those
+shards are downloaded alongside `results/`.
 
 ## Review workflow
 
