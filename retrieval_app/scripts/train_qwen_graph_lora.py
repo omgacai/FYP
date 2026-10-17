@@ -135,7 +135,7 @@ def main() -> None:
         num_train_epochs=args.epochs, max_steps=args.max_steps, bf16=True, fp16=False,
         logging_steps=1, eval_strategy="steps", eval_steps=5, save_strategy="steps", save_steps=5,
         save_total_limit=2, report_to="none", remove_unused_columns=False, seed=args.seed,
-        dataloader_num_workers=0, optim="adamw_torch", warmup_ratio=0.05,
+        dataloader_num_workers=0, optim="adamw_torch",
     )
     collator = GraphSftCollator(processor=processor, corpus_root=corpus_root)
     trainer = Trainer(model=model, args=training_args, train_dataset=train_rows, eval_dataset=val_rows, data_collator=collator)
