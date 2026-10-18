@@ -23,6 +23,7 @@ SFT_EPOCHS="${SFT_EPOCHS:-1}"
 SFT_MAX_STEPS="${SFT_MAX_STEPS:-20}"
 SFT_EVAL_STEPS="${SFT_EVAL_STEPS:-5}"
 SFT_SAVE_STEPS="${SFT_SAVE_STEPS:-5}"
+SFT_GRADIENT_ACCUMULATION_STEPS="${SFT_GRADIENT_ACCUMULATION_STEPS:-8}"
 
 [[ "$(uname -m)" == "x86_64" ]] || { echo "Qwen environment requires x86_64" >&2; exit 2; }
 [[ -f "$VENV_DIR/.ready" ]] || { echo "Missing ready marker: $VENV_DIR/.ready" >&2; exit 2; }
@@ -51,7 +52,7 @@ python -m retrieval_app.scripts.train_qwen_graph_lora \
   --learning-rate 2e-4 \
   --lora-r 16 \
   --lora-alpha 32 \
-  --gradient-accumulation-steps 8 \
+  --gradient-accumulation-steps "$SFT_GRADIENT_ACCUMULATION_STEPS" \
   --eval-steps "$SFT_EVAL_STEPS" \
   --save-steps "$SFT_SAVE_STEPS" \
   --max-pixels 501760
