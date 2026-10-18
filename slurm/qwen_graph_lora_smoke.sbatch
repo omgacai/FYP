@@ -19,6 +19,10 @@ CUBICASA_ROOT="${CUBICASA_ROOT:?Set CUBICASA_ROOT to the CubiCasa corpus root}"
 SFT_DATASET_DIR="${SFT_DATASET_DIR:-$PROJECT_DIR/data/qwen_graph_sft/smoke100}"
 SFT_RUN_NAME="${SFT_RUN_NAME:-smoke100_lora_v1}"
 SFT_OUTPUT_DIR="${SFT_OUTPUT_DIR:-$PROJECT_DIR/outputs/qwen_graph_lora/$SFT_RUN_NAME}"
+SFT_EPOCHS="${SFT_EPOCHS:-1}"
+SFT_MAX_STEPS="${SFT_MAX_STEPS:-20}"
+SFT_EVAL_STEPS="${SFT_EVAL_STEPS:-5}"
+SFT_SAVE_STEPS="${SFT_SAVE_STEPS:-5}"
 
 [[ "$(uname -m)" == "x86_64" ]] || { echo "Qwen environment requires x86_64" >&2; exit 2; }
 [[ -f "$VENV_DIR/.ready" ]] || { echo "Missing ready marker: $VENV_DIR/.ready" >&2; exit 2; }
@@ -42,10 +46,12 @@ python -m retrieval_app.scripts.train_qwen_graph_lora \
   --dataset-dir "$SFT_DATASET_DIR" \
   --corpus-root "$CUBICASA_ROOT" \
   --output-dir "$SFT_OUTPUT_DIR" \
-  --epochs 1 \
-  --max-steps 20 \
+  --epochs "$SFT_EPOCHS" \
+  --max-steps "$SFT_MAX_STEPS" \
   --learning-rate 2e-4 \
   --lora-r 16 \
   --lora-alpha 32 \
   --gradient-accumulation-steps 8 \
+  --eval-steps "$SFT_EVAL_STEPS" \
+  --save-steps "$SFT_SAVE_STEPS" \
   --max-pixels 501760

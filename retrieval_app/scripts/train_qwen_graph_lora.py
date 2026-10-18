@@ -88,13 +88,15 @@ def main() -> None:
     parser.add_argument("--lora-alpha", type=int, default=32)
     parser.add_argument("--lora-dropout", type=float, default=0.05)
     parser.add_argument("--gradient-accumulation-steps", type=int, default=8)
+    parser.add_argument("--eval-steps", type=int, default=5)
+    parser.add_argument("--save-steps", type=int, default=5)
     parser.add_argument("--max-pixels", type=int, default=501_760)
     parser.add_argument("--seed", type=int, default=20261017)
     args = parser.parse_args()
     if args.max_steps == 0 or args.max_steps < -1:
         parser.error("--max-steps must be positive or -1")
-    if args.epochs <= 0 or args.gradient_accumulation_steps < 1:
-        parser.error("--epochs and --gradient-accumulation-steps must be positive")
+    if args.epochs <= 0 or args.gradient_accumulation_steps < 1 or args.eval_steps < 1 or args.save_steps < 1:
+        parser.error("--epochs, --gradient-accumulation-steps, --eval-steps, and --save-steps must be positive")
 
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     import torch
@@ -115,6 +117,7 @@ def main() -> None:
         "max_steps": args.max_steps, "learning_rate": args.learning_rate, "lora_r": args.lora_r,
         "lora_alpha": args.lora_alpha, "lora_dropout": args.lora_dropout,
         "gradient_accumulation_steps": args.gradient_accumulation_steps, "max_pixels": args.max_pixels,
+        "eval_steps": args.eval_steps, "save_steps": args.save_steps,
         "seed": args.seed, "torch": torch.__version__, "cuda_device": torch.cuda.get_device_name(0),
     }, indent=2) + "\n", encoding="utf-8")
     set_seed(args.seed)
@@ -133,7 +136,8 @@ def main() -> None:
         output_dir=str(output_dir), per_device_train_batch_size=1, per_device_eval_batch_size=1,
         gradient_accumulation_steps=args.gradient_accumulation_steps, learning_rate=args.learning_rate,
         num_train_epochs=args.epochs, max_steps=args.max_steps, bf16=True, fp16=False,
-        logging_steps=1, eval_strategy="steps", eval_steps=5, save_strategy="steps", save_steps=5,
+        logging_steps=1, eval_strategy="steps", eval_steps=args.eval_steps,
+        save_strategy="steps", save_steps=args.save_steps,
         save_total_limit=2, report_to="none", remove_unused_columns=False, seed=args.seed,
         dataloader_num_workers=0, optim="adamw_torch",
     )
