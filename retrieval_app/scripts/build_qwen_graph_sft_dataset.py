@@ -125,6 +125,23 @@ def canonical_graph(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def quality_exclusion_reason(record: dict[str, Any], *, min_rooms: int, max_other_outdoor_fraction: float) -> str | None:
+    """Return a reproducible reason to omit weak silver supervision."""
+    rooms = record.get("rooms")
+    if not isinstance(rooms, list):
+        return "invalid_rooms"
+    if len(rooms) < min_rooms:
+        return f"fewer_than_{min_rooms}_rooms"
+    categories = [room.get("category_name") for room in rooms if isinstance(room, dict)]
+    if len(categories) != len(rooms):
+        return "invalid_room_record"
+    weak = sum(category in {"Other", "Outdoor"} for category in categories)
+    fraction = weak / len(categories) if categories else 1.0
+    if fraction > max_other_outdoor_fraction:
+        return f"other_or_outdoor_fraction_{fraction:.3f}_exceeds_{max_other_outdoor_fraction:.3f}"
+    return None
+
+
 def system_prompt() -> str:
     return (
         "You are an architectural floorplan parser. Return exactly one valid JSON object and nothing else. "
@@ -185,8 +202,15 @@ def main() -> None:
     parser.add_argument("--exclude-identities", type=Path, required=True, help="Manual/calibration source identities excluded from all SFT splits")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--limit", type=int, default=0, help="Deterministic smoke-test record limit")
+    parser.add_argument("--min-rooms", type=int, default=1, help="Exclude plans with fewer room instances (default keeps all valid records).")
+    parser.add_argument("--max-other-outdoor-fraction", type=float, default=1.0,
+                        help="Exclude when strictly more than this fraction of rooms are Other or Outdoor.")
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
+    if args.min_rooms < 1:
+        parser.error("--min-rooms must be at least 1")
+    if not 0 <= args.max_other_outdoor_fraction <= 1:
+        parser.error("--max-other-outdoor-fraction must be between 0 and 1")
 
     source = args.canonical_corpus.expanduser().resolve()
     exclusions = load_exclusions(args.exclude_identities)
@@ -199,11 +223,17 @@ def main() -> None:
     source_rows = sorted(read_jsonl(source), key=lambda row: str(row.get("plan_id", "")))
     if args.limit:
         source_rows = source_rows[:args.limit]
-    records, excluded, errors = [], [], []
+    records, excluded, quality_excluded, errors = [], [], [], []
     for row in source_rows:
         identity = row.get("source_identity")
         if isinstance(identity, str) and identity.strip("/") in exclusions:
             excluded.append({"plan_id": row.get("plan_id"), "source_identity": identity, "reason": "explicit_training_exclusion"})
+            continue
+        quality_reason = quality_exclusion_reason(
+            row, min_rooms=args.min_rooms, max_other_outdoor_fraction=args.max_other_outdoor_fraction
+        )
+        if quality_reason:
+            quality_excluded.append({"plan_id": row.get("plan_id"), "source_identity": identity, "reason": quality_reason})
             continue
         try:
             records.append(make_record(row))
@@ -218,6 +248,7 @@ def main() -> None:
     write_jsonl(destination / "train.jsonl", by_split["train"])
     write_jsonl(destination / "val.jsonl", by_split["val"])
     write_jsonl(destination / "excluded.jsonl", excluded)
+    write_jsonl(destination / "quality_excluded.jsonl", quality_excluded)
     write_jsonl(destination / "errors.jsonl", errors)
     metadata = {
         "schema_version": SCHEMA_VERSION,
@@ -225,10 +256,13 @@ def main() -> None:
         "source_canonical_corpus": str(source),
         "source_canonical_corpus_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
         "excluded_identities_sha256": hashlib.sha256(args.exclude_identities.expanduser().read_bytes()).hexdigest(),
-        "records": {"train": len(by_split["train"]), "val": len(by_split["val"]), "excluded": len(excluded), "errors": len(errors)},
+        "records": {"train": len(by_split["train"]), "val": len(by_split["val"]), "excluded": len(excluded),
+                    "quality_excluded": len(quality_excluded), "errors": len(errors)},
         "room_types": dict(sorted(Counter(room["type"] for record in records for room in record["target_graph"]["rooms"]).items())),
         "edge_types": dict(sorted(Counter(edge["type"] for record in records for edge in record["target_graph"]["edges"]).items())),
         "manual20_policy": "All identities in --exclude-identities are excluded from training and validation.",
+        "quality_filter": {"min_rooms": args.min_rooms, "max_other_outdoor_fraction": args.max_other_outdoor_fraction,
+                           "rule": "Drop when rooms < min_rooms or Other+Outdoor fraction is strictly greater than threshold."},
     }
     (destination / "dataset_manifest.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(metadata, indent=2))

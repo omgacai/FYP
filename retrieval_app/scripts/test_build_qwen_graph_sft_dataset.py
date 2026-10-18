@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from retrieval_app.scripts.build_qwen_graph_sft_dataset import canonical_graph, main
+from retrieval_app.scripts.build_qwen_graph_sft_dataset import canonical_graph, main, quality_exclusion_reason
 
 
 def source_record(*, plan_id: str = "plan-a", split: str = "train", identity: str = "colorful/1") -> dict:
@@ -51,6 +51,16 @@ class BuildQwenGraphSftDatasetTest(unittest.TestCase):
             self.assertEqual(len((output / "train.jsonl").read_text(encoding="utf-8").splitlines()), 1)
             self.assertEqual(len((output / "val.jsonl").read_text(encoding="utf-8").splitlines()), 1)
             self.assertEqual(len((output / "excluded.jsonl").read_text(encoding="utf-8").splitlines()), 1)
+
+    def test_quality_filter_uses_strict_other_outdoor_threshold(self):
+        weak = source_record()
+        weak["rooms"] = [
+            {"room_id": "other", "category_name": "Other", "bbox_xyxy": [0, 0, 50, 50]},
+            {"room_id": "outdoor", "category_name": "Outdoor", "bbox_xyxy": [50, 0, 100, 50]},
+            {"room_id": "bed", "category_name": "Bedroom", "bbox_xyxy": [0, 50, 100, 100]},
+        ]
+        self.assertIsNotNone(quality_exclusion_reason(weak, min_rooms=2, max_other_outdoor_fraction=0.5))
+        self.assertIsNone(quality_exclusion_reason(weak, min_rooms=2, max_other_outdoor_fraction=0.7))
 
 
 if __name__ == "__main__":

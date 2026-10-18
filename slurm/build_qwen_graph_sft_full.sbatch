@@ -22,6 +22,8 @@ CUBIGRAPH_REPO="${CUBIGRAPH_REPO:-$REPO_DIR/third_party/CubiGraph5K}"
 EXCLUSIONS="${EXCLUSIONS:-$PROJECT_DIR/data/cubicasa5k/manual20_exclusion_manifest.json}"
 DERIVED_ROOT="${DERIVED_ROOT:-$PROJECT_DIR/data/cubicasa5k/derived_full_v1}"
 SFT_OUT="${SFT_OUT:-$PROJECT_DIR/data/qwen_graph_sft/full_v1}"
+SFT_MIN_ROOMS="${SFT_MIN_ROOMS:-1}"
+SFT_MAX_OTHER_OUTDOOR_FRACTION="${SFT_MAX_OTHER_OUTDOOR_FRACTION:-1.0}"
 
 SOURCE_MANIFEST="$DERIVED_ROOT/source_manifest.jsonl"
 ENRICHED_MANIFEST="$DERIVED_ROOT/cubigraph_manifest.jsonl"
@@ -66,7 +68,8 @@ fi
 if [[ ! -f "$SFT_OUT/dataset_manifest.json" ]]; then
   python -m retrieval_app.scripts.build_qwen_graph_sft_dataset \
     --canonical-corpus "$CANONICAL_CORPUS" --exclude-identities "$EXCLUSIONS" \
-    --output-dir "$SFT_OUT"
+    --output-dir "$SFT_OUT" --min-rooms "$SFT_MIN_ROOMS" \
+    --max-other-outdoor-fraction "$SFT_MAX_OTHER_OUTDOOR_FRACTION"
 fi
 
 cat "$SFT_OUT/dataset_manifest.json"
