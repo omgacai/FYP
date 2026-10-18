@@ -37,7 +37,9 @@ class BuildQwenGraphSftDatasetTest(unittest.TestCase):
             train = source_record(plan_id="plan-c", split="train", identity="colorful/3")
             corpus.write_text("\n".join(json.dumps(item) for item in [source_record(identity="colorful/1"), train, val]) + "\n", encoding="utf-8")
             exclusions = root / "exclude.json"
-            exclusions.write_text(json.dumps(["colorful/1/"]), encoding="utf-8")
+            exclusions.write_text(json.dumps([
+                "/Users/example/Downloads/cubicasa5k/cubicasa5k/colorful/1/"
+            ]), encoding="utf-8")
             output = root / "sft"
             import sys
             previous = sys.argv

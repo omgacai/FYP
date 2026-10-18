@@ -13,6 +13,7 @@ import sys
 import warnings
 from collections import Counter
 from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Any
 
 from bs4 import BeautifulSoup, FeatureNotFound, XMLParsedAsHTMLWarning
@@ -76,6 +77,18 @@ def source_identity(row: dict[str, Any]) -> str:
     if not isinstance(identity, str) or not identity:
         raise ValueError("Manifest record has no metadata.source_dir identity")
     return identity.strip("/")
+
+
+def normalise_identity(value: str) -> str:
+    """Accept portable IDs as well as prior absolute CubiCasa folder paths."""
+    cleaned = value.strip().replace("\\\\", "/")
+    parts = PurePosixPath(cleaned).parts
+    corpus_indices = [index for index, part in enumerate(parts) if part == "cubicasa5k"]
+    if corpus_indices:
+        suffix = parts[corpus_indices[-1] + 1:]
+        if suffix:
+            return "/".join(suffix).strip("/")
+    return cleaned.strip("/")
 
 
 def source_rooms(svg_path: Path, image_size: tuple[int, int], cubigraph_repo: Path, *, svg_coordinate_size: tuple[int, int] | None = None) -> tuple[list[dict[str, Any]], str]:
@@ -167,7 +180,7 @@ def main() -> None:
         loaded = json.loads(args.exclude_identities.expanduser().read_text())
         if not isinstance(loaded, list) or not all(isinstance(value, str) for value in loaded):
             raise ValueError("--exclude-identities must be a JSON array of strings")
-        exclusions = {value.strip("/") for value in loaded}
+        exclusions = {normalise_identity(value) for value in loaded}
     included_rows = []
     excluded_rows = []
     for row in rows:

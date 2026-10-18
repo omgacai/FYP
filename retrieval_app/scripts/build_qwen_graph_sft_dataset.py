@@ -13,6 +13,7 @@ import json
 import shutil
 from collections import Counter
 from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Any
 
 
@@ -40,11 +41,23 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def normalise_identity(value: str) -> str:
+    """Make old absolute CubiCasa paths comparable with portable identities."""
+    cleaned = value.strip().replace("\\\\", "/")
+    parts = PurePosixPath(cleaned).parts
+    corpus_indices = [index for index, part in enumerate(parts) if part == "cubicasa5k"]
+    if corpus_indices:
+        suffix = parts[corpus_indices[-1] + 1:]
+        if suffix:
+            return "/".join(suffix).strip("/")
+    return cleaned.strip("/")
+
+
 def load_exclusions(path: Path) -> set[str]:
     value = json.loads(path.expanduser().read_text(encoding="utf-8"))
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise ValueError("--exclude-identities must be a JSON array of source-plan identity strings")
-    return {item.strip("/") for item in value}
+    return {normalise_identity(item) for item in value}
 
 
 def normalise_bbox(box: Any, image_size: Any) -> list[float]:

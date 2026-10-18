@@ -17,7 +17,9 @@ REPO_DIR="${REPO_DIR:-$PROJECT_DIR/code/FYP}"
 VENV_DIR="${VENV_DIR:-$HOME/aigc-storage/fyp-envs/qwen-a100-cu121}"
 CUBICASA_ROOT="${CUBICASA_ROOT:-$PROJECT_DIR/data/cubicasa5k}"
 CUBIGRAPH_REPO="${CUBIGRAPH_REPO:-$REPO_DIR/third_party/CubiGraph5K}"
-EXCLUSIONS="${EXCLUSIONS:-$REPO_DIR/cubicasa_eval/exclusion_manifest.json}"
+# This user-owned, gitignored file may contain portable IDs or the older
+# absolute local CubiCasa paths; the builders normalise either form.
+EXCLUSIONS="${EXCLUSIONS:-$PROJECT_DIR/data/cubicasa5k/manual20_exclusion_manifest.json}"
 DERIVED_ROOT="${DERIVED_ROOT:-$PROJECT_DIR/data/cubicasa5k/derived_full_v1}"
 SFT_OUT="${SFT_OUT:-$PROJECT_DIR/data/qwen_graph_sft/full_v1}"
 
