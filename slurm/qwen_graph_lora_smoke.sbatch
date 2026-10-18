@@ -24,6 +24,8 @@ SFT_MAX_STEPS="${SFT_MAX_STEPS:-20}"
 SFT_EVAL_STEPS="${SFT_EVAL_STEPS:-5}"
 SFT_SAVE_STEPS="${SFT_SAVE_STEPS:-5}"
 SFT_GRADIENT_ACCUMULATION_STEPS="${SFT_GRADIENT_ACCUMULATION_STEPS:-8}"
+SFT_EVAL_STRATEGY="${SFT_EVAL_STRATEGY:-steps}"
+SFT_SAVE_STRATEGY="${SFT_SAVE_STRATEGY:-steps}"
 
 [[ "$(uname -m)" == "x86_64" ]] || { echo "Qwen environment requires x86_64" >&2; exit 2; }
 [[ -f "$VENV_DIR/.ready" ]] || { echo "Missing ready marker: $VENV_DIR/.ready" >&2; exit 2; }
@@ -36,11 +38,11 @@ source "$VENV_DIR/bin/activate"
 cd "$REPO_DIR"
 
 python - <<'PY'
-import datasets, peft, torch
+import datasets, peft, tensorboard, torch
 import transformers
 assert torch.cuda.is_available(), "CUDA is not visible"
 print("torch:", torch.__version__, "GPU:", torch.cuda.get_device_name(0))
-print("transformers:", transformers.__version__, "peft:", peft.__version__, "datasets:", datasets.__version__)
+print("transformers:", transformers.__version__, "peft:", peft.__version__, "datasets:", datasets.__version__, "tensorboard:", tensorboard.__version__)
 PY
 
 python -m retrieval_app.scripts.train_qwen_graph_lora \
@@ -53,6 +55,8 @@ python -m retrieval_app.scripts.train_qwen_graph_lora \
   --lora-r 16 \
   --lora-alpha 32 \
   --gradient-accumulation-steps "$SFT_GRADIENT_ACCUMULATION_STEPS" \
+  --eval-strategy "$SFT_EVAL_STRATEGY" \
+  --save-strategy "$SFT_SAVE_STRATEGY" \
   --eval-steps "$SFT_EVAL_STEPS" \
   --save-steps "$SFT_SAVE_STEPS" \
   --max-pixels 501760

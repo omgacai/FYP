@@ -8,3 +8,6 @@ numpy
 beautifulsoup4
 shapely
 pydantic>=2.0
+peft
+datasets
+tensorboard

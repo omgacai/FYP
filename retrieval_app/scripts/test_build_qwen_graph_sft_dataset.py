@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from retrieval_app.scripts.build_qwen_graph_sft_dataset import canonical_graph, main, quality_exclusion_reason
+from retrieval_app.scripts.train_qwen_graph_lora import token_accuracy
 
 
 def source_record(*, plan_id: str = "plan-a", split: str = "train", identity: str = "colorful/1") -> dict:
@@ -61,6 +62,10 @@ class BuildQwenGraphSftDatasetTest(unittest.TestCase):
         ]
         self.assertIsNotNone(quality_exclusion_reason(weak, min_rooms=2, max_other_outdoor_fraction=0.5))
         self.assertIsNone(quality_exclusion_reason(weak, min_rooms=2, max_other_outdoor_fraction=0.7))
+
+    def test_token_accuracy_ignores_prompt_labels(self):
+        metrics = token_accuracy(([[4, 2, 3]], [[-100, 2, 7]]))
+        self.assertEqual(metrics, {"token_accuracy": 0.5})
 
 
 if __name__ == "__main__":

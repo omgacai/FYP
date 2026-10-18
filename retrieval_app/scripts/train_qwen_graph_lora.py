@@ -33,6 +33,24 @@ def resolve_image(record: dict[str, Any], corpus_root: Path) -> Path:
     return path
 
 
+def preprocess_logits_for_metrics(logits: Any, _labels: Any) -> Any:
+    """Keep only token IDs so validation metrics do not gather vocabulary logits."""
+    if isinstance(logits, tuple):
+        logits = logits[0]
+    return logits.argmax(dim=-1)
+
+
+def token_accuracy(eval_prediction: Any) -> dict[str, float]:
+    """Teacher-forced target-token accuracy, ignoring the image/prompt tokens."""
+    import numpy as np
+
+    predictions, labels = (np.asarray(value) for value in eval_prediction)
+    mask = labels != -100
+    if not np.any(mask):
+        return {"token_accuracy": 0.0}
+    return {"token_accuracy": float(np.mean(predictions[mask] == labels[mask]))}
+
+
 @dataclass
 class GraphSftCollator:
     processor: Any
@@ -90,6 +108,8 @@ def main() -> None:
     parser.add_argument("--gradient-accumulation-steps", type=int, default=8)
     parser.add_argument("--eval-steps", type=int, default=5)
     parser.add_argument("--save-steps", type=int, default=5)
+    parser.add_argument("--eval-strategy", choices=("steps", "epoch"), default="steps")
+    parser.add_argument("--save-strategy", choices=("steps", "epoch"), default="steps")
     parser.add_argument("--max-pixels", type=int, default=501_760)
     parser.add_argument("--seed", type=int, default=20261017)
     args = parser.parse_args()
@@ -117,6 +137,7 @@ def main() -> None:
         "max_steps": args.max_steps, "learning_rate": args.learning_rate, "lora_r": args.lora_r,
         "lora_alpha": args.lora_alpha, "lora_dropout": args.lora_dropout,
         "gradient_accumulation_steps": args.gradient_accumulation_steps, "max_pixels": args.max_pixels,
+        "eval_strategy": args.eval_strategy, "save_strategy": args.save_strategy,
         "eval_steps": args.eval_steps, "save_steps": args.save_steps,
         "seed": args.seed, "torch": torch.__version__, "cuda_device": torch.cuda.get_device_name(0),
     }, indent=2) + "\n", encoding="utf-8")
@@ -136,13 +157,18 @@ def main() -> None:
         output_dir=str(output_dir), per_device_train_batch_size=1, per_device_eval_batch_size=1,
         gradient_accumulation_steps=args.gradient_accumulation_steps, learning_rate=args.learning_rate,
         num_train_epochs=args.epochs, max_steps=args.max_steps, bf16=True, fp16=False,
-        logging_steps=1, eval_strategy="steps", eval_steps=args.eval_steps,
-        save_strategy="steps", save_steps=args.save_steps,
-        save_total_limit=2, report_to="none", remove_unused_columns=False, seed=args.seed,
+        logging_steps=1, logging_dir=str(output_dir / "tensorboard"), logging_strategy="steps",
+        eval_strategy=args.eval_strategy, eval_steps=args.eval_steps,
+        save_strategy=args.save_strategy, save_steps=args.save_steps,
+        save_total_limit=2, report_to=["tensorboard"], remove_unused_columns=False, seed=args.seed,
         dataloader_num_workers=0, optim="adamw_torch",
     )
     collator = GraphSftCollator(processor=processor, corpus_root=corpus_root)
-    trainer = Trainer(model=model, args=training_args, train_dataset=train_rows, eval_dataset=val_rows, data_collator=collator)
+    trainer = Trainer(
+        model=model, args=training_args, train_dataset=train_rows, eval_dataset=val_rows,
+        data_collator=collator, compute_metrics=token_accuracy,
+        preprocess_logits_for_metrics=preprocess_logits_for_metrics,
+    )
     trainer.train()
     trainer.save_model(str(output_dir / "adapter"))
     processor.save_pretrained(str(output_dir / "adapter"))
