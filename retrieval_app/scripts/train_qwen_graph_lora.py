@@ -53,7 +53,7 @@ def token_accuracy(eval_prediction: Any) -> dict[str, float]:
     return {"token_accuracy": float(np.mean(predictions[mask] == labels[mask]))}
 
 
-def tensorboard_callback(log_dir: Path) -> Any:
+def tensorboard_callback(log_dir: Path, epoch_metrics_path: Path) -> Any:
     """Use a direct callback for compatibility with the SOC Transformers build."""
     from torch.utils.tensorboard import SummaryWriter
     from transformers import TrainerCallback
@@ -68,6 +68,17 @@ def tensorboard_callback(log_dir: Path) -> Any:
                 writer.add_scalar(key, value, state.global_step)
             if numeric:
                 print("METRICS " + json.dumps({"step": state.global_step, **numeric}, sort_keys=True), flush=True)
+
+        def on_evaluate(self, _args, state, _control, metrics=None, **_kwargs):
+            """Keep a compact, auditable validation record for every epoch."""
+            record = {
+                "epoch": state.epoch,
+                "step": state.global_step,
+                **{key: float(value) for key, value in (metrics or {}).items()
+                   if isinstance(value, (int, float))},
+            }
+            with epoch_metrics_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(record, sort_keys=True) + "\n")
 
         def on_train_end(self, _args, _state, _control, **_kwargs):
             writer.flush()
@@ -186,7 +197,9 @@ def main() -> None:
         logging_steps=1,
         eval_strategy=args.eval_strategy, eval_steps=args.eval_steps,
         save_strategy=args.save_strategy, save_steps=args.save_steps,
-        save_total_limit=2, report_to="none", remove_unused_columns=False, seed=args.seed,
+        save_total_limit=2, load_best_model_at_end=True,
+        metric_for_best_model="eval_token_accuracy", greater_is_better=True,
+        report_to="none", remove_unused_columns=False, seed=args.seed,
         dataloader_num_workers=0, optim="adamw_torch",
     )
     collator = GraphSftCollator(processor=processor, corpus_root=corpus_root)
@@ -194,9 +207,18 @@ def main() -> None:
         model=model, args=training_args, train_dataset=train_rows, eval_dataset=val_rows,
         data_collator=collator, compute_metrics=token_accuracy,
         preprocess_logits_for_metrics=preprocess_logits_for_metrics,
-        callbacks=[tensorboard_callback(output_dir / "tensorboard")],
+        callbacks=[tensorboard_callback(output_dir / "tensorboard", output_dir / "epoch_metrics.jsonl")],
     )
     trainer.train()
+    (output_dir / "model_selection.json").write_text(json.dumps({
+        "selection_split": "validation",
+        "selection_metric": "eval_token_accuracy",
+        "greater_is_better": True,
+        "best_checkpoint": trainer.state.best_model_checkpoint,
+        "best_validation_token_accuracy": trainer.state.best_metric,
+        "epoch_metrics_file": "epoch_metrics.jsonl",
+        "note": "Teacher-forced JSON target-token accuracy; this is not Manual20 graph or QA accuracy.",
+    }, indent=2) + "\n", encoding="utf-8")
     trainer.save_model(str(output_dir / "adapter"))
     processor.save_pretrained(str(output_dir / "adapter"))
     metrics = trainer.evaluate()
