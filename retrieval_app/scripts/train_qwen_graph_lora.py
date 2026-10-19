@@ -60,9 +60,12 @@ def tensorboard_callback(log_dir: Path) -> Any:
 
     class MetricsCallback(TrainerCallback):
         def on_log(self, _args, state, _control, logs=None, **_kwargs):
-            for key, value in (logs or {}).items():
-                if isinstance(value, (int, float)):
-                    writer.add_scalar(key, value, state.global_step)
+            numeric = {key: float(value) for key, value in (logs or {}).items()
+                       if isinstance(value, (int, float))}
+            for key, value in numeric.items():
+                writer.add_scalar(key, value, state.global_step)
+            if numeric:
+                print("METRICS " + json.dumps({"step": state.global_step, **numeric}, sort_keys=True), flush=True)
 
         def on_train_end(self, _args, _state, _control, **_kwargs):
             writer.flush()
