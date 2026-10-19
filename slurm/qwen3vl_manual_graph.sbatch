@@ -5,8 +5,6 @@
 #SBATCH --job-name=qwen3vl-manual
 #SBATCH --partition=gpu
 #SBATCH --nodes=1
-# xgph0–xgph9 are the verified x86-64 A100-80 candidate pool.
-#SBATCH --nodelist=xgph[0-9]
 #SBATCH --gres=gpu:a100-80:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=48G
