@@ -29,6 +29,8 @@ VLM_RUN_NAME="${VLM_RUN_NAME:-qwen3vl8b_manual20_direct_spatial}"
 VLM_MAX_PIXELS="${VLM_MAX_PIXELS:-1048576}"
 VLM_PROMPT_VERSION="${VLM_PROMPT_VERSION:-baseline}"
 VLM_JSON_REPAIR_ATTEMPTS="${VLM_JSON_REPAIR_ATTEMPTS:-1}"
+VLM_ADAPTER_DIR="${VLM_ADAPTER_DIR:-}"
+VLM_PROMPT_CONTRACT="${VLM_PROMPT_CONTRACT:-direct}"
 
 [[ "$(uname -m)" == "x86_64" ]] || { echo "This Qwen environment requires x86_64" >&2; exit 2; }
 [[ -f "$VENV_DIR/.ready" ]] || { echo "Missing Qwen ready marker: $VENV_DIR/.ready" >&2; exit 2; }
@@ -40,10 +42,16 @@ source "$VENV_DIR/bin/activate"
 cd "$REPO_DIR"
 
 echo "Host: $(hostname)"; nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
-python -m retrieval_app.scripts.run_qwen_graph \
-  --manifest "$VLM_MANIFEST" --corpus-root "$VLM_MANUAL_ROOT" \
-  --output "$VLM_OUTPUT_DIR/${VLM_RUN_NAME}.shard${VLM_SHARD_INDEX}.jsonl" \
-  --model Qwen/Qwen3-VL-8B-Instruct --mode zero --representation spatial \
-  --prompt-version "$VLM_PROMPT_VERSION" --graph-context none --limit 0 \
-  --num-shards "$VLM_NUM_SHARDS" --shard-index "$VLM_SHARD_INDEX" \
+RUNNER_ARGS=(
+  --manifest "$VLM_MANIFEST" --corpus-root "$VLM_MANUAL_ROOT"
+  --output "$VLM_OUTPUT_DIR/${VLM_RUN_NAME}.shard${VLM_SHARD_INDEX}.jsonl"
+  --model Qwen/Qwen3-VL-8B-Instruct --mode zero --representation spatial
+  --prompt-version "$VLM_PROMPT_VERSION" --prompt-contract "$VLM_PROMPT_CONTRACT" --graph-context none --limit 0
+  --num-shards "$VLM_NUM_SHARDS" --shard-index "$VLM_SHARD_INDEX"
   --max-pixels "$VLM_MAX_PIXELS" --max-new-tokens 1024 --json-repair-attempts "$VLM_JSON_REPAIR_ATTEMPTS"
+)
+if [[ -n "$VLM_ADAPTER_DIR" ]]; then
+  [[ -f "$VLM_ADAPTER_DIR/adapter_config.json" ]] || { echo "Missing adapter: $VLM_ADAPTER_DIR" >&2; exit 2; }
+  RUNNER_ARGS+=(--adapter-dir "$VLM_ADAPTER_DIR")
+fi
+python -m retrieval_app.scripts.run_qwen_graph "${RUNNER_ARGS[@]}"

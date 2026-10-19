@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from retrieval_app.scripts.build_qwen_silver_support_from_bundle import normalise, rooms_from_relation_svg
+from retrieval_app.scripts.build_qwen_graph_sft_dataset import system_prompt as sft_system_prompt
 from retrieval_app.scripts.build_qwen_spatial_support import qwen_type
 from retrieval_app.vlm_graph.prompts import (
     correction_system_prompt, correction_target_instruction, silver_correction_instruction,
@@ -79,7 +80,20 @@ def candidate_from_cubigraph(graph_path: Path, adjacency: dict[str, Any]) -> dic
     return validate_graph({"canvas": {"width": 1000, "height": 1000}, "rooms": rooms, "edges": edges}, require_spatial=True)
 
 
-def make_messages(supports: list[dict[str, Any]], target: Path, spatial: bool, prompt_version: str, silver_graph: dict[str, Any] | None = None, task: str = "direct") -> list[dict[str, Any]]:
+def make_messages(supports: list[dict[str, Any]], target: Path, spatial: bool, prompt_version: str,
+                  silver_graph: dict[str, Any] | None = None, task: str = "direct",
+                  prompt_contract: str = "direct") -> list[dict[str, Any]]:
+    """Build either the historical graph prompt or the exact LoRA SFT contract."""
+    if prompt_contract == "sft_v1":
+        if supports or silver_graph is not None or task != "direct" or not spatial:
+            raise ValueError("sft_v1 only supports direct, image-only, spatial inference.")
+        return [
+            {"role": "system", "content": sft_system_prompt()},
+            {"role": "user", "content": [
+                {"type": "image", "image": str(target)},
+                {"type": "text", "text": "Parse this floorplan image into the required spatial room graph JSON."},
+            ]},
+        ]
     content: list[dict[str, Any]] = []
     for support in supports:
         content.extend([
@@ -100,6 +114,8 @@ def main() -> None:
     parser.add_argument("--corpus-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True, help="JSONL experiment output.")
     parser.add_argument("--model", default="Qwen/Qwen3-VL-8B-Instruct")
+    parser.add_argument("--adapter-dir", type=Path,
+                        help="Saved LoRA adapter. With this, use --prompt-contract sft_v1 for the SFT test.")
     parser.add_argument("--mode", choices=("zero", "few"), default="zero")
     parser.add_argument("--representation", choices=("semantic", "spatial"), default="semantic")
     parser.add_argument("--task", choices=("direct", "fixed_node_correction"), default="direct")
@@ -113,6 +129,8 @@ def main() -> None:
     parser.add_argument("--max-new-tokens", type=int, default=1024)
     parser.add_argument("--max-pixels", type=int, default=1024 * 1024, help="Bound vision tokens; use same value across conditions.")
     parser.add_argument("--json-repair-attempts", type=int, default=1, help="Bounded text-only retries when Qwen returns malformed JSON.")
+    parser.add_argument("--prompt-contract", choices=("direct", "sft_v1"), default="direct",
+                        help="Prompt contract. sft_v1 exactly matches the graph-LoRA SFT inputs.")
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
@@ -128,6 +146,10 @@ def main() -> None:
         parser.error("fixed_node_correction requires --graph-context silver.")
     if args.task == "fixed_node_correction" and args.representation != "spatial":
         parser.error("fixed_node_correction requires --representation spatial.")
+    if args.prompt_contract == "sft_v1" and (
+        args.mode != "zero" or args.representation != "spatial" or args.graph_context != "none" or args.task != "direct"
+    ):
+        parser.error("sft_v1 requires --mode zero --representation spatial --graph-context none --task direct.")
     if args.json_repair_attempts < 0 or args.json_repair_attempts > 2:
         parser.error("--json-repair-attempts must be between 0 and 2.")
 
@@ -155,10 +177,19 @@ def main() -> None:
         output.unlink()
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    processor = AutoProcessor.from_pretrained(args.model, max_pixels=args.max_pixels)
+    adapter_dir = args.adapter_dir.expanduser().resolve() if args.adapter_dir else None
+    if adapter_dir is not None and not (adapter_dir / "adapter_config.json").is_file():
+        raise FileNotFoundError(f"Missing adapter_config.json under {adapter_dir}")
+    model_name = args.model
+    if adapter_dir is not None:
+        from peft import PeftConfig, PeftModel
+        model_name = PeftConfig.from_pretrained(str(adapter_dir)).base_model_name_or_path
+    processor = AutoProcessor.from_pretrained(str(adapter_dir or model_name), max_pixels=args.max_pixels)
     model = Qwen3VLForConditionalGeneration.from_pretrained(
-        args.model, torch_dtype=torch.bfloat16, device_map="auto"
+        model_name, torch_dtype=torch.bfloat16, device_map="auto"
     ).eval()
+    if adapter_dir is not None:
+        model = PeftModel.from_pretrained(model, str(adapter_dir)).eval()
 
     def generate(messages: list[dict[str, Any]]) -> str:
         """Generate once; repair calls intentionally have no image to save GPU time."""
@@ -201,7 +232,10 @@ def main() -> None:
                 if args.task == "fixed_node_correction":
                     candidate_graph = candidate_from_cubigraph(graph_path, silver_graph)
             candidate_for_prompt = candidate_graph if candidate_graph is not None else silver_graph
-            messages = make_messages(supports, image_path, spatial=spatial, prompt_version=args.prompt_version, silver_graph=candidate_for_prompt, task=args.task)
+            messages = make_messages(
+                supports, image_path, spatial=spatial, prompt_version=args.prompt_version,
+                silver_graph=candidate_for_prompt, task=args.task, prompt_contract=args.prompt_contract,
+            )
             raw_output = generate(messages)
             result: dict[str, Any] = {
                 "plan_id": plan_id,
@@ -213,7 +247,9 @@ def main() -> None:
                 "graph_context_provenance": "silver" if silver_graph is not None else None,
                 "representation": args.representation,
                 "support_count": len(supports),
-                "model": args.model,
+                "model": model_name,
+                "adapter_dir": str(adapter_dir) if adapter_dir is not None else None,
+                "prompt_contract": args.prompt_contract,
                 "max_pixels": args.max_pixels,
                 "max_new_tokens": args.max_new_tokens,
                 "shard_index": args.shard_index,
