@@ -3,7 +3,6 @@
 #SBATCH --job-name=qwen3vl-qa
 #SBATCH --partition=gpu
 #SBATCH --nodes=1
-#SBATCH --nodelist=xgph[0-9]
 #SBATCH --gres=gpu:a100-80:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=48G
