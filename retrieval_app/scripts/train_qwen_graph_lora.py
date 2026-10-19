@@ -51,6 +51,26 @@ def token_accuracy(eval_prediction: Any) -> dict[str, float]:
     return {"token_accuracy": float(np.mean(predictions[mask] == labels[mask]))}
 
 
+def tensorboard_callback(log_dir: Path) -> Any:
+    """Use a direct callback for compatibility with the SOC Transformers build."""
+    from torch.utils.tensorboard import SummaryWriter
+    from transformers import TrainerCallback
+
+    writer = SummaryWriter(log_dir=str(log_dir))
+
+    class MetricsCallback(TrainerCallback):
+        def on_log(self, _args, state, _control, logs=None, **_kwargs):
+            for key, value in (logs or {}).items():
+                if isinstance(value, (int, float)):
+                    writer.add_scalar(key, value, state.global_step)
+
+        def on_train_end(self, _args, _state, _control, **_kwargs):
+            writer.flush()
+            writer.close()
+
+    return MetricsCallback()
+
+
 @dataclass
 class GraphSftCollator:
     processor: Any
@@ -139,6 +159,7 @@ def main() -> None:
         "gradient_accumulation_steps": args.gradient_accumulation_steps, "max_pixels": args.max_pixels,
         "eval_strategy": args.eval_strategy, "save_strategy": args.save_strategy,
         "eval_steps": args.eval_steps, "save_steps": args.save_steps,
+        "tensorboard_dir": str(output_dir / "tensorboard"),
         "seed": args.seed, "torch": torch.__version__, "cuda_device": torch.cuda.get_device_name(0),
     }, indent=2) + "\n", encoding="utf-8")
     set_seed(args.seed)
@@ -157,10 +178,10 @@ def main() -> None:
         output_dir=str(output_dir), per_device_train_batch_size=1, per_device_eval_batch_size=1,
         gradient_accumulation_steps=args.gradient_accumulation_steps, learning_rate=args.learning_rate,
         num_train_epochs=args.epochs, max_steps=args.max_steps, bf16=True, fp16=False,
-        logging_steps=1, logging_dir=str(output_dir / "tensorboard"), logging_strategy="steps",
+        logging_steps=1,
         eval_strategy=args.eval_strategy, eval_steps=args.eval_steps,
         save_strategy=args.save_strategy, save_steps=args.save_steps,
-        save_total_limit=2, report_to=["tensorboard"], remove_unused_columns=False, seed=args.seed,
+        save_total_limit=2, report_to="none", remove_unused_columns=False, seed=args.seed,
         dataloader_num_workers=0, optim="adamw_torch",
     )
     collator = GraphSftCollator(processor=processor, corpus_root=corpus_root)
@@ -168,6 +189,7 @@ def main() -> None:
         model=model, args=training_args, train_dataset=train_rows, eval_dataset=val_rows,
         data_collator=collator, compute_metrics=token_accuracy,
         preprocess_logits_for_metrics=preprocess_logits_for_metrics,
+        callbacks=[tensorboard_callback(output_dir / "tensorboard")],
     )
     trainer.train()
     trainer.save_model(str(output_dir / "adapter"))
