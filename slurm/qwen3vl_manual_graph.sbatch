@@ -25,6 +25,7 @@ VLM_NUM_SHARDS="${VLM_NUM_SHARDS:-4}"
 VLM_SHARD_INDEX="${VLM_SHARD_INDEX:-${SLURM_ARRAY_TASK_ID:-0}}"
 VLM_RUN_NAME="${VLM_RUN_NAME:-qwen3vl8b_manual20_direct_spatial}"
 VLM_MAX_PIXELS="${VLM_MAX_PIXELS:-1048576}"
+VLM_MAX_NEW_TOKENS="${VLM_MAX_NEW_TOKENS:-2048}"
 VLM_PROMPT_VERSION="${VLM_PROMPT_VERSION:-baseline}"
 VLM_JSON_REPAIR_ATTEMPTS="${VLM_JSON_REPAIR_ATTEMPTS:-1}"
 VLM_ADAPTER_DIR="${VLM_ADAPTER_DIR:-}"
@@ -46,7 +47,7 @@ RUNNER_ARGS=(
   --model Qwen/Qwen3-VL-8B-Instruct --mode zero --representation spatial
   --prompt-version "$VLM_PROMPT_VERSION" --prompt-contract "$VLM_PROMPT_CONTRACT" --graph-context none --limit 0
   --num-shards "$VLM_NUM_SHARDS" --shard-index "$VLM_SHARD_INDEX"
-  --max-pixels "$VLM_MAX_PIXELS" --max-new-tokens 1024 --json-repair-attempts "$VLM_JSON_REPAIR_ATTEMPTS"
+  --max-pixels "$VLM_MAX_PIXELS" --max-new-tokens "$VLM_MAX_NEW_TOKENS" --json-repair-attempts "$VLM_JSON_REPAIR_ATTEMPTS"
 )
 if [[ -n "$VLM_ADAPTER_DIR" ]]; then
   [[ -f "$VLM_ADAPTER_DIR/adapter_config.json" ]] || { echo "Missing adapter: $VLM_ADAPTER_DIR" >&2; exit 2; }
