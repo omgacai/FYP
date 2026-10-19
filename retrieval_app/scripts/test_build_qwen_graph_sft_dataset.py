@@ -64,8 +64,8 @@ class BuildQwenGraphSftDatasetTest(unittest.TestCase):
         self.assertIsNone(quality_exclusion_reason(weak, min_rooms=2, max_other_outdoor_fraction=0.7))
 
     def test_token_accuracy_ignores_prompt_labels(self):
-        metrics = token_accuracy(([[4, 2, 3]], [[-100, 2, 7]]))
-        self.assertEqual(metrics, {"token_accuracy": 0.5})
+        metrics = token_accuracy(([[2, 7, 0]], [[-100, 2, 7]]))
+        self.assertEqual(metrics, {"token_accuracy": 1.0})
 
 
 if __name__ == "__main__":

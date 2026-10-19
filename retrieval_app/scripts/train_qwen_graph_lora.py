@@ -45,6 +45,8 @@ def token_accuracy(eval_prediction: Any) -> dict[str, float]:
     import numpy as np
 
     predictions, labels = (np.asarray(value) for value in eval_prediction)
+    # Causal-LM logits at position t predict the token at t + 1.
+    predictions, labels = predictions[:, :-1], labels[:, 1:]
     mask = labels != -100
     if not np.any(mask):
         return {"token_accuracy": 0.0}
