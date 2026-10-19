@@ -24,6 +24,28 @@ def read_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+def expected_plan_ids(root: Path) -> set[str]:
+    """Read either legacy manifest.json or current reviewed annotations."""
+    manifest_path = root / "manifest.json"
+    if manifest_path.is_file():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if not isinstance(manifest, list):
+            raise ValueError("manual manifest must be a JSON array")
+        return {str(row["plan_id"]) for row in manifest}
+    expected = set()
+    for annotation_path in sorted((root / "annotations").glob("*.graph.json")):
+        annotation = json.loads(annotation_path.read_text(encoding="utf-8"))
+        if annotation.get("status") != "manually_reviewed":
+            raise ValueError(f"{annotation_path}: annotation is not manually reviewed")
+        plan_id = annotation.get("plan_id")
+        if not isinstance(plan_id, str) or not plan_id:
+            raise ValueError(f"{annotation_path}: missing plan_id")
+        expected.add(plan_id)
+    if not expected:
+        raise ValueError(f"{root}: need manifest.json or reviewed annotations/*.graph.json")
+    return expected
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--predictions", type=Path, required=True)
@@ -31,8 +53,7 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
     root, output = args.manual_root.expanduser().resolve(), args.output_dir.expanduser().resolve()
-    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
-    expected = {str(row["plan_id"]) for row in manifest}
+    expected = expected_plan_ids(root)
     records = {str(row.get("plan_id")): row for row in read_jsonl(args.predictions.expanduser().resolve())}
     if set(records) != expected:
         raise ValueError(f"Prediction coverage mismatch: missing={sorted(expected - set(records))}, unexpected={sorted(set(records) - expected)}")
