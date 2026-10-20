@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""LoRA SFT smoke trainer for raster-only Qwen floor-plan graph extraction.
+"""LoRA SFT trainer for raster-only Qwen floor-plan tasks.
 
-Targets must be produced by build_qwen_graph_sft_dataset.py. The source SVG and
-CubiGraph outputs are labels only; the model receives the floor-plan raster and
-the fixed parsing instruction.
+The graph and QA dataset builders both emit image-plus-chat records. Source SVG
+and CubiGraph data remain labels only; the model receives a raster and the
+fixed task prompt.
 """
 from __future__ import annotations
 
@@ -88,7 +88,7 @@ def tensorboard_callback(log_dir: Path, epoch_metrics_path: Path) -> Any:
 
 
 @dataclass
-class GraphSftCollator:
+class RasterSftCollator:
     processor: Any
     corpus_root: Path
 
@@ -97,7 +97,7 @@ class GraphSftCollator:
         # appropriate for the initial A100 smoke run. Gradient accumulation
         # controls the effective batch size.
         if len(features) != 1:
-            raise ValueError("GraphSftCollator requires per-device batch size 1")
+            raise ValueError("RasterSftCollator requires per-device batch size 1")
         record = features[0]
         messages = record.get("messages")
         if not isinstance(messages, list) or len(messages) != 3 or messages[-1].get("role") != "assistant":
@@ -148,6 +148,7 @@ def main() -> None:
     parser.add_argument("--save-strategy", choices=("steps", "epoch"), default="steps")
     parser.add_argument("--max-pixels", type=int, default=501_760)
     parser.add_argument("--seed", type=int, default=20261017)
+    parser.add_argument("--task-name", default="graph_extraction", help="Auditable label for this SFT run.")
     args = parser.parse_args()
     if args.max_steps == 0 or args.max_steps < -1:
         parser.error("--max-steps must be positive or -1")
@@ -168,7 +169,7 @@ def main() -> None:
         resolve_image(record, corpus_root)
     output_dir.mkdir(parents=True, exist_ok=False)
     (output_dir / "run_config.json").write_text(json.dumps({
-        "model": args.model, "dataset_dir": str(dataset_dir), "corpus_root": str(corpus_root),
+        "task_name": args.task_name, "model": args.model, "dataset_dir": str(dataset_dir), "corpus_root": str(corpus_root),
         "train_records": len(train_rows), "val_records": len(val_rows), "epochs": args.epochs,
         "max_steps": args.max_steps, "learning_rate": args.learning_rate, "lora_r": args.lora_r,
         "lora_alpha": args.lora_alpha, "lora_dropout": args.lora_dropout,
@@ -202,7 +203,7 @@ def main() -> None:
         report_to="none", remove_unused_columns=False, seed=args.seed,
         dataloader_num_workers=0, optim="adamw_torch",
     )
-    collator = GraphSftCollator(processor=processor, corpus_root=corpus_root)
+    collator = RasterSftCollator(processor=processor, corpus_root=corpus_root)
     trainer = Trainer(
         model=model, args=training_args, train_dataset=train_rows, eval_dataset=val_rows,
         data_collator=collator, compute_metrics=token_accuracy,
@@ -217,7 +218,7 @@ def main() -> None:
         "best_checkpoint": trainer.state.best_model_checkpoint,
         "best_validation_token_accuracy": trainer.state.best_metric,
         "epoch_metrics_file": "epoch_metrics.jsonl",
-        "note": "Teacher-forced JSON target-token accuracy; this is not Manual20 graph or QA accuracy.",
+        "note": "Teacher-forced target-token accuracy; this is not a free-generation or Manual20 evaluation metric.",
     }, indent=2) + "\n", encoding="utf-8")
     trainer.save_model(str(output_dir / "adapter"))
     processor.save_pretrained(str(output_dir / "adapter"))
