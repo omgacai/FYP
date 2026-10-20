@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from retrieval_app.scripts.run_qwen_qa import make_messages as condition_prompt_messages
 
 PROMPT_VERSION = "qa_lora_condition_ablation_v1"
 CONDITIONS = ("image_only", "graph_only", "image_graph")
@@ -53,6 +54,10 @@ def load_graph(path: Path) -> dict[str, Any]:
 
 
 def make_messages(row: dict[str, str], condition: str, image_path: Path | None, graph_data: dict[str, Any] | None) -> list[dict[str, Any]]:
+    # Graph-conditioned SFT data uses this shared prompt contract. Reuse it at
+    # inference so the image+graph adapter sees the same structure and wording.
+    if condition != "image_only":
+        return condition_prompt_messages(row, condition, image_path or Path("unused.png"), graph_data)
     if condition == "image_only":
         system = (
             "Answer residential floor-plan questions using the supplied floor-plan image. "
