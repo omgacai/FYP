@@ -93,40 +93,59 @@ class RasterSftCollator:
     corpus_root: Path
 
     def __call__(self, features: list[dict[str, Any]]) -> dict[str, Any]:
-        # Batch-size one keeps the multimodal masking logic explicit and is
-        # appropriate for the initial A100 smoke run. Gradient accumulation
-        # controls the effective batch size.
-        if len(features) != 1:
-            raise ValueError("RasterSftCollator requires per-device batch size 1")
-        record = features[0]
-        messages = record.get("messages")
-        if not isinstance(messages, list) or len(messages) != 3 or messages[-1].get("role") != "assistant":
-            raise ValueError(f"{record.get('plan_id')}: expected system/user/assistant messages")
-        assistant = messages[-1].get("content")
-        if not isinstance(assistant, str):
-            raise ValueError(f"{record.get('plan_id')}: assistant target must be text")
-        prompt_messages = messages[:-1]
-        image_path = resolve_image(record, self.corpus_root)
-        image_messages = [*prompt_messages]
-        # Dataset paths are relative to a different machine's corpus root, so
-        # inject the locally resolved path before qwen_vl_utils opens it.
-        user_content = list(image_messages[-1]["content"])
-        user_content[0] = {**user_content[0], "image": str(image_path)}
-        image_messages[-1] = {**image_messages[-1], "content": user_content}
+        """Collate one or more image/chat records with right padding.
 
+        Qwen vision tensors are variable length because input images have
+        different aspect ratios. Token sequences are padded; vision patches are
+        concatenated, while ``image_grid_thw`` retains each image boundary.
+        """
+        import torch
         from qwen_vl_utils import process_vision_info
 
-        image_inputs, video_inputs = process_vision_info(image_messages)
-        prompt_text = self.processor.apply_chat_template(image_messages, tokenize=False, add_generation_prompt=True)
-        full_messages = [*image_messages, {"role": "assistant", "content": assistant}]
-        full_text = self.processor.apply_chat_template(full_messages, tokenize=False, add_generation_prompt=False)
-        prompt_inputs = self.processor(text=[prompt_text], images=image_inputs or None, videos=video_inputs or None, return_tensors="pt")
-        full_inputs = self.processor(text=[full_text], images=image_inputs or None, videos=video_inputs or None, return_tensors="pt")
-        prompt_length = prompt_inputs.input_ids.shape[1]
-        labels = full_inputs.input_ids.clone()
-        labels[:, :prompt_length] = -100
-        full_inputs["labels"] = labels
-        return full_inputs
+        rows: list[dict[str, Any]] = []
+        for record in features:
+            messages = record.get("messages")
+            if not isinstance(messages, list) or len(messages) != 3 or messages[-1].get("role") != "assistant":
+                raise ValueError(f"{record.get('plan_id')}: expected system/user/assistant messages")
+            assistant = messages[-1].get("content")
+            if not isinstance(assistant, str):
+                raise ValueError(f"{record.get('plan_id')}: assistant target must be text")
+            image_messages = [*messages[:-1]]
+            image_path = resolve_image(record, self.corpus_root)
+            user_content = list(image_messages[-1]["content"])
+            user_content[0] = {**user_content[0], "image": str(image_path)}
+            image_messages[-1] = {**image_messages[-1], "content": user_content}
+            image_inputs, video_inputs = process_vision_info(image_messages)
+            prompt_text = self.processor.apply_chat_template(image_messages, tokenize=False, add_generation_prompt=True)
+            full_messages = [*image_messages, {"role": "assistant", "content": assistant}]
+            full_text = self.processor.apply_chat_template(full_messages, tokenize=False, add_generation_prompt=False)
+            prompt_inputs = self.processor(text=[prompt_text], images=image_inputs or None, videos=video_inputs or None, return_tensors="pt")
+            full_inputs = self.processor(text=[full_text], images=image_inputs or None, videos=video_inputs or None, return_tensors="pt")
+            labels = full_inputs.input_ids.clone()
+            labels[:, :prompt_inputs.input_ids.shape[1]] = -100
+            full_inputs["labels"] = labels
+            rows.append(full_inputs)
+
+        max_length = max(row["input_ids"].shape[1] for row in rows)
+        pad_token_id = self.processor.tokenizer.pad_token_id
+        if pad_token_id is None:
+            pad_token_id = self.processor.tokenizer.eos_token_id
+        batch: dict[str, Any] = {}
+        for key in ("input_ids", "attention_mask", "labels"):
+            padded = []
+            for row in rows:
+                value = row[key]
+                pad_width = max_length - value.shape[1]
+                if pad_width:
+                    fill = -100 if key == "labels" else (0 if key == "attention_mask" else pad_token_id)
+                    value = torch.nn.functional.pad(value, (0, pad_width), value=fill)
+                padded.append(value)
+            batch[key] = torch.cat(padded, dim=0)
+        for key in ("pixel_values", "image_grid_thw", "pixel_values_videos", "video_grid_thw"):
+            values = [row[key] for row in rows if key in row]
+            if values:
+                batch[key] = torch.cat(values, dim=0)
+        return batch
 
 
 def main() -> None:
@@ -147,13 +166,14 @@ def main() -> None:
     parser.add_argument("--eval-strategy", choices=("steps", "epoch"), default="steps")
     parser.add_argument("--save-strategy", choices=("steps", "epoch"), default="steps")
     parser.add_argument("--max-pixels", type=int, default=501_760)
+    parser.add_argument("--per-device-train-batch-size", type=int, default=1)
     parser.add_argument("--seed", type=int, default=20261017)
     parser.add_argument("--task-name", default="graph_extraction", help="Auditable label for this SFT run.")
     args = parser.parse_args()
     if args.max_steps == 0 or args.max_steps < -1:
         parser.error("--max-steps must be positive or -1")
-    if args.epochs <= 0 or args.gradient_accumulation_steps < 1 or args.eval_steps < 1 or args.save_steps < 1:
-        parser.error("--epochs, --gradient-accumulation-steps, --eval-steps, and --save-steps must be positive")
+    if args.epochs <= 0 or args.per_device_train_batch_size < 1 or args.gradient_accumulation_steps < 1 or args.eval_steps < 1 or args.save_steps < 1:
+        parser.error("--epochs, --per-device-train-batch-size, --gradient-accumulation-steps, --eval-steps, and --save-steps must be positive")
 
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     import torch
@@ -172,7 +192,7 @@ def main() -> None:
         "task_name": args.task_name, "model": args.model, "dataset_dir": str(dataset_dir), "corpus_root": str(corpus_root),
         "train_records": len(train_rows), "val_records": len(val_rows), "epochs": args.epochs,
         "max_steps": args.max_steps, "learning_rate": args.learning_rate, "lora_r": args.lora_r,
-        "lora_alpha": args.lora_alpha, "lora_dropout": args.lora_dropout,
+        "lora_alpha": args.lora_alpha, "lora_dropout": args.lora_dropout, "per_device_train_batch_size": args.per_device_train_batch_size,
         "gradient_accumulation_steps": args.gradient_accumulation_steps, "max_pixels": args.max_pixels,
         "eval_strategy": args.eval_strategy, "save_strategy": args.save_strategy,
         "eval_steps": args.eval_steps, "save_steps": args.save_steps,
@@ -192,7 +212,7 @@ def main() -> None:
     model = get_peft_model(model, lora)
     model.print_trainable_parameters()
     training_args = TrainingArguments(
-        output_dir=str(output_dir), per_device_train_batch_size=1, per_device_eval_batch_size=1,
+        output_dir=str(output_dir), per_device_train_batch_size=args.per_device_train_batch_size, per_device_eval_batch_size=1,
         gradient_accumulation_steps=args.gradient_accumulation_steps, learning_rate=args.learning_rate,
         num_train_epochs=args.epochs, max_steps=args.max_steps, bf16=True, fp16=False,
         logging_steps=1,

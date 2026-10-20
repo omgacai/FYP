@@ -21,7 +21,8 @@ QA_RUN_NAME="${QA_RUN_NAME:?Set QA_RUN_NAME to a fresh descriptive name}"
 QA_OUTPUT_DIR="${QA_OUTPUT_DIR:-$PROJECT_DIR/outputs/qwen_qa_lora/$QA_RUN_NAME}"
 QA_EPOCHS="${QA_EPOCHS:-3}"
 QA_MAX_STEPS="${QA_MAX_STEPS:--1}"
-QA_GRADIENT_ACCUMULATION_STEPS="${QA_GRADIENT_ACCUMULATION_STEPS:-16}"
+QA_PER_DEVICE_TRAIN_BATCH_SIZE="${QA_PER_DEVICE_TRAIN_BATCH_SIZE:-16}"
+QA_GRADIENT_ACCUMULATION_STEPS="${QA_GRADIENT_ACCUMULATION_STEPS:-1}"
 
 [[ "$(uname -m)" == "x86_64" ]] || { echo "Qwen environment requires x86_64" >&2; exit 2; }
 [[ -f "$VENV_DIR/.ready" ]] || { echo "Missing ready marker: $VENV_DIR/.ready" >&2; exit 2; }
@@ -43,6 +44,7 @@ python -m retrieval_app.scripts.train_qwen_graph_lora \
   --learning-rate 2e-4 \
   --lora-r 16 \
   --lora-alpha 32 \
+  --per-device-train-batch-size "$QA_PER_DEVICE_TRAIN_BATCH_SIZE" \
   --gradient-accumulation-steps "$QA_GRADIENT_ACCUMULATION_STEPS" \
   --eval-strategy epoch \
   --save-strategy epoch \
