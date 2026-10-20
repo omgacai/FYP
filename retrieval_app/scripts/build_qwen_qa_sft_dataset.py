@@ -18,17 +18,18 @@ from pathlib import Path
 from typing import Any
 
 from retrieval_app.scripts.build_qwen_graph_sft_dataset import load_exclusions, normalise_identity
-from retrieval_app.scripts.generate_manual_graph_qa import (
-    COUNTABLE_TYPES,
-    RELATIVE_POSITION_MIN_DELTA,
-    TYPE_PLURALS,
-)
 from retrieval_app.scripts.run_qwen_qa import make_messages
 
 
 SCHEMA_VERSION = "qwen-floorplan-qa-sft/1"
 LABEL_TIER = "silver_svg_rooms_cubigraph_edges"
 ACCESS_RELATIONS = {"connected_by_door"}
+COUNTABLE_TYPES = {"Bedroom", "Bath", "Kitchen", "LivingRoom", "Dining", "Corridor", "Entry"}
+TYPE_PLURALS = {
+    "Bedroom": "bedrooms", "Bath": "bathrooms", "Kitchen": "kitchens", "LivingRoom": "living rooms",
+    "Dining": "dining rooms", "Corridor": "corridors", "Entry": "entries",
+}
+RELATIVE_POSITION_MIN_DELTA = 0.18
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
