@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""LoRA SFT trainer for raster-only Qwen floor-plan tasks.
+"""LoRA SFT trainer for raster and graph-conditioned Qwen floor-plan tasks.
 
 The graph and QA dataset builders both emit image-plus-chat records. Source SVG
-and CubiGraph data remain labels only; the model receives a raster and the
-fixed task prompt.
+and CubiGraph data may be labels only or explicit serialized prompt context,
+depending on the dataset's input-condition provenance.
 """
 from __future__ import annotations
 
@@ -111,9 +111,12 @@ class RasterSftCollator:
             if not isinstance(assistant, str):
                 raise ValueError(f"{record.get('plan_id')}: assistant target must be text")
             image_messages = [*messages[:-1]]
-            image_path = resolve_image(record, self.corpus_root)
             user_content = list(image_messages[-1]["content"])
-            user_content[0] = {**user_content[0], "image": str(image_path)}
+            image_indices = [index for index, item in enumerate(user_content) if item.get("type") == "image"]
+            if image_indices:
+                image_path = resolve_image(record, self.corpus_root)
+                for index in image_indices:
+                    user_content[index] = {**user_content[index], "image": str(image_path)}
             image_messages[-1] = {**image_messages[-1], "content": user_content}
             image_inputs, video_inputs = process_vision_info(image_messages)
             prompt_text = self.processor.apply_chat_template(image_messages, tokenize=False, add_generation_prompt=True)
@@ -186,7 +189,10 @@ def main() -> None:
     train_rows = read_jsonl(dataset_dir / "train.jsonl")
     val_rows = read_jsonl(dataset_dir / "val.jsonl")
     for record in [*train_rows, *val_rows]:
-        resolve_image(record, corpus_root)
+        messages = record.get("messages", [])
+        user_content = messages[1].get("content", []) if isinstance(messages, list) and len(messages) > 1 else []
+        if any(isinstance(item, dict) and item.get("type") == "image" for item in user_content):
+            resolve_image(record, corpus_root)
     output_dir.mkdir(parents=True, exist_ok=False)
     (output_dir / "run_config.json").write_text(json.dumps({
         "task_name": args.task_name, "model": args.model, "dataset_dir": str(dataset_dir), "corpus_root": str(corpus_root),

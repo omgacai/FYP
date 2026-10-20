@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Build image-only Qwen QA SFT data from CubiGraph silver plan records.
+"""Build Qwen QA SFT data from CubiGraph silver plan records.
 
 This is deliberately a separate task from raster-to-graph extraction.  It
-uses the CubiCasa raster as the only model input and derives deterministic QA
-answers from source-SVG rooms and CubiGraph edges.  Manual20 identities are
-excluded defensively and are never emitted into train or validation.
+derives deterministic QA answers from source-SVG rooms and CubiGraph edges.
+The input condition is explicit: image-only is the baseline; image+graph and
+graph-only serialize the same silver graph into the model prompt. Manual20
+identities are excluded defensively and are never emitted into train or validation.
 """
 from __future__ import annotations
 
@@ -21,7 +22,7 @@ from retrieval_app.scripts.build_qwen_graph_sft_dataset import load_exclusions, 
 from retrieval_app.scripts.run_qwen_qa import make_messages
 
 
-SCHEMA_VERSION = "qwen-floorplan-qa-sft/1"
+SCHEMA_VERSION = "qwen-floorplan-qa-sft/2"
 LABEL_TIER = "silver_svg_rooms_cubigraph_edges"
 ACCESS_RELATIONS = {"connected_by_door"}
 COUNTABLE_TYPES = {"Bedroom", "Bath", "Kitchen", "LivingRoom", "Dining", "Corridor", "Entry"}
@@ -101,7 +102,7 @@ def relative_position(a: dict[str, Any], b: dict[str, Any]) -> str | None:
     return horizontal if abs(dx) >= abs(dy) else vertical
 
 
-def answer_json(answer: str, evidence: str, reasoning: str) -> str:
+def image_answer_json(answer: str, evidence: str, reasoning: str) -> str:
     return json.dumps({"answer": answer, "evidence": [evidence], "reasoning": reasoning}, separators=(",", ":"))
 
 
@@ -115,15 +116,17 @@ def candidates(plan_id: str, rooms: list[dict[str, Any]], edges: list[dict[str, 
         plural = TYPE_PLURALS[room_type]
         result["count"].append({"question": f"How many {plural} are there?", "gold_answer": str(count),
                                 "answer_format": "integer", "category": "count", "difficulty": "D0",
-                                "target": answer_json(str(count), f"The floor plan contains {count} {plural}.",
-                                                      f"Counting the labelled {plural} gives {count}.")})
+                                "target": image_answer_json(str(count), f"The floor plan contains {count} {plural}.",
+                                                      f"Counting the labelled {plural} gives {count}."),
+                                "support_nodes": [room["id"] for room in rooms if room["type"] == room_type], "support_edges": []})
     access_edges = [edge for edge in edges if edge["relation"] in ACCESS_RELATIONS]
     for edge in access_edges:
         a, b = by_id[edge["a"]], by_id[edge["b"]]
         result["direct_access"].append({"question": f"Is {a['label']} directly accessible from {b['label']}?", "gold_answer": "yes",
                                          "answer_format": "yes_no_unknown", "category": "direct_access", "difficulty": "D1",
-                                         "target": answer_json("yes", f"A door connects {a['label']} and {b['label']}.",
-                                                               f"{a['label']} and {b['label']} have a direct door connection.")})
+                                         "target": image_answer_json("yes", f"A door connects {a['label']} and {b['label']}.",
+                                                               f"{a['label']} and {b['label']} have a direct door connection."),
+                                         "support_nodes": [a["id"], b["id"]], "support_edges": [[a["id"], b["id"]]]})
     for a in rooms:
         for b in rooms:
             if a["id"] == b["id"]:
@@ -132,8 +135,9 @@ def candidates(plan_id: str, rooms: list[dict[str, Any]], edges: list[dict[str, 
             if relation:
                 result["relative_position"].append({"question": f"Where is {a['label']} relative to {b['label']}?", "gold_answer": relation,
                                                     "answer_format": "direction", "category": "relative_position", "difficulty": "D2",
-                                                    "target": answer_json(relation, f"{a['label']} is {relation.replace('_', ' ')} of {b['label']}.",
-                                                                          f"The layout places {a['label']} {relation.replace('_', ' ')} of {b['label']}.")})
+                                                    "target": image_answer_json(relation, f"{a['label']} is {relation.replace('_', ' ')} of {b['label']}.",
+                                                                          f"The layout places {a['label']} {relation.replace('_', ' ')} of {b['label']}."),
+                                                    "support_nodes": [a["id"], b["id"]], "support_edges": []})
     neighbours: dict[str, set[str]] = {room["id"]: set() for room in rooms}
     for edge in access_edges:
         neighbours[edge["a"]].add(edge["b"]); neighbours[edge["b"]].add(edge["a"])
@@ -143,8 +147,9 @@ def candidates(plan_id: str, rooms: list[dict[str, Any]], edges: list[dict[str, 
             article = "an" if other["type"] in {"Entry", "Outdoor"} else "a"
             result["compound_access"].append({"question": f"Is there {article} {other['type'].lower()} directly accessible from {anchor['label']}?", "gold_answer": "yes",
                                                 "answer_format": "yes_no_unknown", "category": "compound_access", "difficulty": "D3",
-                                                "target": answer_json("yes", f"A door connects {anchor['label']} to {other['label']}.",
-                                                                      f"{other['label']} is a directly accessible {other['type'].lower()} from {anchor['label']}.")})
+                                                "target": image_answer_json("yes", f"A door connects {anchor['label']} to {other['label']}.",
+                                                                      f"{other['label']} is a directly accessible {other['type'].lower()} from {anchor['label']}."),
+                                                "support_nodes": [anchor["id"], other["id"]], "support_edges": [[anchor["id"], other["id"]]]})
     for start in rooms:
         queue: deque[tuple[str, list[str]]] = deque([(start["id"], [start["id"]])])
         visited = {start["id"]}
@@ -155,8 +160,9 @@ def candidates(plan_id: str, rooms: list[dict[str, Any]], edges: list[dict[str, 
                 transitions = len(path) - 1
                 result["shortest_access_path"].append({"question": f"What is the minimum number of direct room-to-room transitions needed to get from {start['label']} to {end['label']}?", "gold_answer": str(transitions),
                                                        "answer_format": "integer", "category": "shortest_access_path", "difficulty": "D4",
-                                                       "target": answer_json(str(transitions), f"The direct door route from {start['label']} to {end['label']} has {transitions} transition(s).",
-                                                                             f"The shortest direct-door route contains {transitions} transition(s).")})
+                                                       "target": image_answer_json(str(transitions), f"The direct door route from {start['label']} to {end['label']} has {transitions} transition(s).",
+                                                                             f"The shortest direct-door route contains {transitions} transition(s)."),
+                                                       "support_nodes": list(path), "support_edges": [[a, b] for a, b in zip(path, path[1:])]})
             for next_id in sorted(neighbours[current]):
                 if next_id not in visited:
                     visited.add(next_id); queue.append((next_id, [*path, next_id]))
@@ -175,15 +181,44 @@ def select(candidates_by_category: dict[str, list[dict[str, str]]], plan_id: str
     return selected
 
 
-def build_record(plan: dict[str, Any], question: dict[str, str], number: int) -> dict[str, Any]:
+def serialise_graph(rooms: list[dict[str, Any]], edges: list[dict[str, str]]) -> tuple[dict[str, Any], dict[str, str], dict[tuple[str, str], str]]:
+    """Create the compact, cited graph contract used by QA graph prompts."""
+    aliases = {room["id"]: f"R{index}" for index, room in enumerate(rooms, start=1)}
+    graph_edges = []
+    edge_aliases: dict[tuple[str, str], str] = {}
+    for edge in edges:
+        key = tuple(sorted((edge["a"], edge["b"])))
+        if key in edge_aliases:
+            continue
+        edge_id = f"E{len(graph_edges) + 1}"
+        edge_aliases[key] = edge_id
+        relation = "direct_access" if edge["relation"] == "connected_by_door" else edge["relation"]
+        graph_edges.append({"a": aliases[edge["a"]], "b": aliases[edge["b"]], "relation": relation, "edge_id": edge_id})
+    graph = {"plan_id": None, "nodes": [{"id": aliases[room["id"]], "label": room["label"], "type": room["type"], "x": room["x"], "y": room["y"]} for room in rooms], "edges": graph_edges}
+    return graph, aliases, edge_aliases
+
+
+def graph_answer_json(question: dict[str, Any], node_aliases: dict[str, str], edge_aliases: dict[tuple[str, str], str]) -> str:
+    node_ids = [node_aliases[node_id] for node_id in question.get("support_nodes", []) if node_id in node_aliases]
+    edge_ids = [edge_aliases[tuple(sorted(pair))] for pair in question.get("support_edges", []) if tuple(sorted(pair)) in edge_aliases]
+    target = json.loads(question["target"])
+    return json.dumps({"answer": target["answer"], "evidence": {"node_ids": node_ids, "edge_ids": edge_ids}, "reasoning": target["reasoning"]}, separators=(",", ":"))
+
+
+def build_record(plan: dict[str, Any], rooms: list[dict[str, Any]], edges: list[dict[str, str]], question: dict[str, Any], number: int, input_condition: str) -> dict[str, Any]:
     row = {"question": question["question"], "answer_format": question["answer_format"], "category": question["category"]}
-    messages = make_messages(row, "image_only", Path(str(plan["image_path"])), None)
-    return {"schema_version": SCHEMA_VERSION, "sample_id": f"qa_silver_v1_{number:07d}_{plan['plan_id']}", "plan_id": plan["plan_id"],
+    graph_data, node_aliases, edge_aliases = serialise_graph(rooms, edges)
+    graph_data["plan_id"] = plan["plan_id"]
+    image_path = Path(str(plan["image_path"])) if input_condition in {"image_only", "image_graph"} else Path("unused.png")
+    messages = make_messages(row, input_condition, image_path, graph_data if input_condition != "image_only" else None)
+    target = question["target"] if input_condition == "image_only" else graph_answer_json(question, node_aliases, edge_aliases)
+    return {"schema_version": SCHEMA_VERSION, "sample_id": f"qa_silver_{input_condition}_v1_{number:07d}_{plan['plan_id']}", "plan_id": plan["plan_id"],
             "split": plan["split"], "image_path": plan["image_path"], "question": question["question"],
             "gold_answer": question["gold_answer"], "answer_format": question["answer_format"], "category": question["category"],
-            "messages": [*messages, {"role": "assistant", "content": question["target"]}],
+            "input_condition": input_condition, "messages": [*messages, {"role": "assistant", "content": target}],
             "provenance": {"label_tier": LABEL_TIER, "source_identity": plan["source_identity"], "source_svg": plan.get("svg_path"),
-                           "question_generation": "deterministic_cubigraph_v1", "known_limitations": "Only CubiGraph threshold doors are direct-access positives; open passages are not supervised."}}
+                           "question_generation": "deterministic_cubigraph_v1", "input_condition": input_condition,
+                           "known_limitations": "Only CubiGraph threshold doors are direct-access positives; open passages are not supervised."}}
 
 
 def main() -> None:
@@ -191,6 +226,7 @@ def main() -> None:
     parser.add_argument("--canonical-corpus", type=Path, required=True)
     parser.add_argument("--exclude-identities", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--input-condition", choices=("image_only", "graph_only", "image_graph"), default="image_only")
     parser.add_argument("--selection-seed", type=int, default=20261020)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
@@ -218,7 +254,7 @@ def main() -> None:
             excluded.append({"plan_id": plan_id, "reason": "no_answerable_qa_pairs"}); continue
         plan_question_counts[len(selected)] += 1
         for question in selected:
-            output_rows[split].append(build_record(plan, question, len(output_rows[split]) + 1))
+            output_rows[split].append(build_record(plan, rooms, edges, question, len(output_rows[split]) + 1, args.input_condition))
     for split, rows in output_rows.items():
         (output / f"{split}.jsonl").write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows), encoding="utf-8")
     (output / "excluded_plans.jsonl").write_text("".join(json.dumps(row) + "\n" for row in excluded), encoding="utf-8")
@@ -229,6 +265,7 @@ def main() -> None:
                 "plans_by_questions_emitted": dict(sorted(plan_question_counts.items())), "excluded_plans": len(excluded),
                 "manual20_policy": "All listed Manual20 identities are excluded before QA generation.",
                 "cleaning_policy": "Drop no nodes, no CubiGraph edges, or Other+Outdoor fraction > 0.5.",
+                "input_condition": args.input_condition,
                 "relation_policy": "CubiGraph v1: only connected_by_door is direct access; open_connected is not supervised."}
     (output / "dataset_manifest.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(metadata, indent=2))

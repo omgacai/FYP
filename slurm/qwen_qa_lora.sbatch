@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Qwen image-only QA LoRA launch.  The historical trainer module supports both
-# graph and QA chat records; this launcher keeps QA outputs/provenance separate.
+# Qwen QA LoRA launch. Input modality is read from the SFT dataset manifest.
 #SBATCH --job-name=qwen-qa-lora
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:a100-80:1
@@ -23,6 +22,7 @@ QA_EPOCHS="${QA_EPOCHS:-3}"
 QA_MAX_STEPS="${QA_MAX_STEPS:--1}"
 QA_PER_DEVICE_TRAIN_BATCH_SIZE="${QA_PER_DEVICE_TRAIN_BATCH_SIZE:-16}"
 QA_GRADIENT_ACCUMULATION_STEPS="${QA_GRADIENT_ACCUMULATION_STEPS:-1}"
+QA_INPUT_CONDITION="${QA_INPUT_CONDITION:-image_only}"
 
 [[ "$(uname -m)" == "x86_64" ]] || { echo "Qwen environment requires x86_64" >&2; exit 2; }
 [[ -f "$VENV_DIR/.ready" ]] || { echo "Missing ready marker: $VENV_DIR/.ready" >&2; exit 2; }
@@ -38,7 +38,7 @@ python -m retrieval_app.scripts.train_qwen_graph_lora \
   --dataset-dir "$QA_SFT_DATASET_DIR" \
   --corpus-root "$CUBICASA_ROOT" \
   --output-dir "$QA_OUTPUT_DIR" \
-  --task-name qa_image_only_cubigraph_v1 \
+  --task-name "qa_${QA_INPUT_CONDITION}_cubigraph_v1" \
   --epochs "$QA_EPOCHS" \
   --max-steps "$QA_MAX_STEPS" \
   --learning-rate 2e-4 \

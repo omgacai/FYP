@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from retrieval_app.scripts.build_qwen_qa_sft_dataset import main, prepare_plan
+from retrieval_app.scripts.build_qwen_qa_sft_dataset import build_record, candidates, prepare_plan, select, main
 
 
 def plan(*, plan_id: str = "plan-a", split: str = "train", edges: list[dict] | None = None) -> dict:
@@ -51,6 +51,18 @@ class BuildQwenQaSftDatasetTest(unittest.TestCase):
         self.assertEqual({row["plan_id"] for row in train}, {"plan-a"})
         self.assertEqual({row["category"] for row in train}, {"count", "direct_access", "relative_position", "compound_access", "shortest_access_path"})
         self.assertTrue(all(len(row["messages"]) == 3 for row in train))
+
+    def test_image_graph_record_contains_serialized_graph_and_graph_citations(self):
+        source = plan()
+        rooms, edges, reason = prepare_plan(source)
+        self.assertIsNone(reason)
+        question = select(candidates(source["plan_id"], rooms, edges), source["plan_id"], 20261020)[0]
+        record = build_record(source, rooms, edges, question, 1, "image_graph")
+        content = record["messages"][1]["content"]
+        self.assertEqual([item["type"] for item in content], ["image", "text", "text"])
+        target = json.loads(record["messages"][-1]["content"])
+        self.assertEqual(set(target["evidence"]), {"node_ids", "edge_ids"})
+        self.assertTrue(all(item.startswith("R") for item in target["evidence"]["node_ids"]))
 
 
 if __name__ == "__main__":
