@@ -131,13 +131,13 @@ class RasterSftCollator:
         if pad_token_id is None:
             pad_token_id = self.processor.tokenizer.eos_token_id
         batch: dict[str, Any] = {}
-        for key in ("input_ids", "attention_mask", "labels"):
+        for key in ("input_ids", "attention_mask", "mm_token_type_ids", "labels"):
             padded = []
             for row in rows:
                 value = row[key]
                 pad_width = max_length - value.shape[1]
                 if pad_width:
-                    fill = -100 if key == "labels" else (0 if key == "attention_mask" else pad_token_id)
+                    fill = -100 if key == "labels" else (0 if key in {"attention_mask", "mm_token_type_ids"} else pad_token_id)
                     value = torch.nn.functional.pad(value, (0, pad_width), value=fill)
                 padded.append(value)
             batch[key] = torch.cat(padded, dim=0)
