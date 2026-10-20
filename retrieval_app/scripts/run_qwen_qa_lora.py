@@ -12,7 +12,7 @@ from typing import Any
 
 
 PROMPT_VERSION = "qa_lora_image_only_v1"
-DIRECTIONS = {"top", "bottom", "left", "right", "top_left", "top_right", "bottom_left", "bottom_right"}
+DIRECTIONS = {"top", "bottom", "left", "right", "top_left", "top_right", "bottom_left", "bottom_right", "above", "below"}
 QUESTION_NOTES = {
     "shortest_access_path": "Shortest path is the minimum number of direct room-to-room transitions. Count each direct-access edge as one transition.",
 }
@@ -64,7 +64,8 @@ def parse_response(raw: str, answer_format: str) -> tuple[Any | None, Any | None
     if answer_format == "yes_no_unknown" and isinstance(answer, str) and answer.strip().lower() in {"yes", "no", "unknown"}:
         return answer.strip().lower(), evidence, reasoning, None
     if answer_format == "direction" and isinstance(answer, str) and answer.strip().lower() in DIRECTIONS:
-        return answer.strip().lower(), evidence, reasoning, None
+        normalised = {"top": "above", "bottom": "below"}.get(answer.strip().lower(), answer.strip().lower())
+        return normalised, evidence, reasoning, None
     if answer_format == "room_id_list" and isinstance(answer, list) and all(isinstance(item, str) for item in answer):
         return sorted(answer), evidence, reasoning, None
     return None, evidence, reasoning, f"answer_does_not_match_{answer_format}"
