@@ -91,7 +91,7 @@ def make_messages(row: dict[str, str], condition: str, image_path: Path | None, 
     return [{"role": "system", "content": system}, {"role": "user", "content": content}]
 
 
-def parse_response(raw: str, answer_format: str, condition: str) -> tuple[Any | None, Any | None, str | None, str | None]:
+def parse_response(raw: str, answer_format: str, condition: str, legacy_cardinal_labels: bool = False) -> tuple[Any | None, Any | None, str | None, str | None]:
     try:
         value = json.loads(raw)
     except json.JSONDecodeError as error:
@@ -114,7 +114,9 @@ def parse_response(raw: str, answer_format: str, condition: str) -> tuple[Any | 
     if answer_format == "yes_no_unknown" and isinstance(answer, str) and answer.strip().lower() in {"yes", "no", "unknown"}:
         return answer.strip().lower(), evidence, reasoning, None
     if answer_format == "direction" and isinstance(answer, str) and answer.strip().lower() in DIRECTIONS:
-        normalised = {"top": "above", "bottom": "below"}.get(answer.strip().lower(), answer.strip().lower())
+        normalised = answer.strip().lower()
+        if legacy_cardinal_labels:
+            normalised = {"top": "above", "bottom": "below"}.get(normalised, normalised)
         return normalised, evidence, reasoning, None
     if answer_format == "room_id_list" and isinstance(answer, list) and all(isinstance(item, str) for item in answer):
         return sorted(answer), evidence, reasoning, None
@@ -185,7 +187,10 @@ def main() -> None:
             graph_data = load_graph(graphs / f"{row['plan_id']}.graph.json") if graphs else None
             messages = make_messages(row, args.condition, image_path if args.condition != "graph_only" else None, graph_data)
             raw = generate(messages)
-            answer, evidence, reasoning, error = parse_response(raw, row["answer_format"], args.condition)
+            answer, evidence, reasoning, error = parse_response(
+                raw, row["answer_format"], args.condition,
+                legacy_cardinal_labels=row["answer_format"] == "direction" and row["gold_answer"].strip().lower() in {"above", "below"},
+            )
             evidence_errors = validate_evidence(evidence, graph_data)
             handle.write(json.dumps({"question_id": row["question_id"], "plan_id": row["plan_id"], "condition": args.condition,
                                      "model": args.model, "adapter": str(adapter), "gold_answer": row["gold_answer"], "answer_format": row["answer_format"],
