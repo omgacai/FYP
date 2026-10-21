@@ -2,7 +2,7 @@
 # Sharded Manual20 QA input-condition evaluation for a trained Qwen LoRA adapter.
 #SBATCH --job-name=qwen-qa-lora-eval
 #SBATCH --partition=gpu
-#SBATCH --gres=gpu:a100-80:1
+#SBATCH --gres=gpu:h100-96:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=48G
 #SBATCH --time=03:00:00
@@ -34,7 +34,12 @@ mkdir -p "$REPO_DIR/slurm/logs" "$QA_OUTPUT_DIR" "$CACHE_ROOT/huggingface"
 export HF_HOME="$CACHE_ROOT/huggingface" TOKENIZERS_PARALLELISM=false
 source "$VENV_DIR/bin/activate"
 cd "$REPO_DIR"
-OUTPUT_PATH="$QA_OUTPUT_DIR/${QA_CONDITION}_lora.shard${QA_SHARD_INDEX}.jsonl"
+if [[ "$QA_CONDITION" == "image_only" ]]; then
+  OUTPUT_STEM="image_only_lora"
+else
+  OUTPUT_STEM="${QA_CONDITION}_${QA_GRAPH_SOURCE}_lora"
+fi
+OUTPUT_PATH="$QA_OUTPUT_DIR/${OUTPUT_STEM}.shard${QA_SHARD_INDEX}.jsonl"
 args=(--questions "$QA_QUESTIONS" --images-dir "$QA_IMAGES_DIR" --adapter "$QA_ADAPTER" \
   --output "$OUTPUT_PATH" --condition "$QA_CONDITION" --num-shards "$QA_NUM_SHARDS" \
   --shard-index "$QA_SHARD_INDEX" --max-pixels 1048576 --max-new-tokens 512)
