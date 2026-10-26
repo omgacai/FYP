@@ -22,9 +22,10 @@ from retrieval_app.scripts.build_qwen_graph_sft_dataset import load_exclusions, 
 from retrieval_app.scripts.run_qwen_qa import make_messages
 
 
-SCHEMA_VERSION = "qwen-floorplan-qa-sft/2"
+SCHEMA_VERSION = "qwen-floorplan-qa-sft/3"
 LABEL_TIER = "silver_svg_rooms_cubigraph_edges"
 ACCESS_RELATIONS = {"connected_by_door", "open_connected"}
+TOPOLOGY_POLICIES = {"door_only", "reviewed_complete"}
 COUNTABLE_TYPES = {"Bedroom", "Bath", "Kitchen", "LivingRoom", "Dining", "Corridor", "Entry"}
 TYPE_PLURALS = {
     "Bedroom": "bedrooms", "Bath": "bathrooms", "Kitchen": "kitchens", "LivingRoom": "living rooms",
@@ -44,7 +45,7 @@ def room_label(category: str, index: int) -> str:
     return f"{category} {index}"
 
 
-def prepare_plan(record: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, str]], str | None]:
+def prepare_plan(record: dict[str, Any], *, edge_field: str = "silver_edges") -> tuple[list[dict[str, Any]], list[dict[str, str]], str | None]:
     """Normalise one canonical record and return a QA-ready room/edge view."""
     source_rooms = record.get("rooms")
     image_size = record.get("image_size")
@@ -75,7 +76,7 @@ def prepare_plan(record: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dic
     room_ids = {room["id"] for room in rooms}
     edges: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
-    for edge in record.get("silver_edges", []):
+    for edge in record.get(edge_field, []):
         if not isinstance(edge, dict):
             continue
         a, b, relation = edge.get("room_a"), edge.get("room_b"), edge.get("predicate")
@@ -106,8 +107,10 @@ def image_answer_json(answer: str, evidence: str, reasoning: str) -> str:
     return json.dumps({"answer": answer, "evidence": [evidence], "reasoning": reasoning}, separators=(",", ":"))
 
 
-def candidates(plan_id: str, rooms: list[dict[str, Any]], edges: list[dict[str, str]]) -> dict[str, list[dict[str, str]]]:
-    """Generate answerable image-only QA candidates from positive silver facts."""
+def candidates(plan_id: str, rooms: list[dict[str, Any]], edges: list[dict[str, str]], *, topology_policy: str = "door_only") -> dict[str, list[dict[str, str]]]:
+    """Generate QA only where the requested topology policy supports the claim."""
+    if topology_policy not in TOPOLOGY_POLICIES:
+        raise ValueError(f"unknown topology policy: {topology_policy}")
     by_id = {room["id"]: room for room in rooms}
     result = {name: [] for name in ("count", "direct_access", "relative_position", "compound_access", "shortest_access_path")}
     type_counts = Counter(room["type"] for room in rooms)
@@ -119,13 +122,14 @@ def candidates(plan_id: str, rooms: list[dict[str, Any]], edges: list[dict[str, 
                                 "target": image_answer_json(str(count), f"The floor plan contains {count} {plural}.",
                                                       f"Counting the labelled {plural} gives {count}."),
                                 "support_nodes": [room["id"] for room in rooms if room["type"] == room_type], "support_edges": []})
-    access_edges = [edge for edge in edges if edge["relation"] in ACCESS_RELATIONS]
+    access_relations = {"connected_by_door"} if topology_policy == "door_only" else ACCESS_RELATIONS
+    access_edges = [edge for edge in edges if edge["relation"] in access_relations]
     for edge in access_edges:
         a, b = by_id[edge["a"]], by_id[edge["b"]]
         result["direct_access"].append({"question": f"Is {a['label']} directly accessible from {b['label']}?", "gold_answer": "yes",
                                          "answer_format": "yes_no_unknown", "category": "direct_access", "difficulty": "D1",
-                                         "target": image_answer_json("yes", f"A door connects {a['label']} and {b['label']}.",
-                                                               f"{a['label']} and {b['label']} have a direct door connection."),
+                                         "target": image_answer_json("yes", f"A listed direct-access edge connects {a['label']} and {b['label']}.",
+                                                               f"{a['label']} and {b['label']} have a listed direct-access connection."),
                                          "support_nodes": [a["id"], b["id"]], "support_edges": [[a["id"], b["id"]]]})
     for a in rooms:
         for b in rooms:
@@ -138,6 +142,11 @@ def candidates(plan_id: str, rooms: list[dict[str, Any]], edges: list[dict[str, 
                                                     "target": image_answer_json(relation, f"{a['label']} is {relation.replace('_', ' ')} of {b['label']}.",
                                                                           f"The layout places {a['label']} {relation.replace('_', ' ')} of {b['label']}."),
                                                     "support_nodes": [a["id"], b["id"]], "support_edges": []})
+    if topology_policy == "door_only":
+        # A threshold-door graph is incomplete: no compound/path claim may be
+        # inferred from omitted open passages.
+        return result
+
     neighbours: dict[str, set[str]] = {room["id"]: set() for room in rooms}
     for edge in access_edges:
         neighbours[edge["a"]].add(edge["b"]); neighbours[edge["b"]].add(edge["a"])
@@ -205,20 +214,26 @@ def graph_answer_json(question: dict[str, Any], node_aliases: dict[str, str], ed
     return json.dumps({"answer": target["answer"], "evidence": {"node_ids": node_ids, "edge_ids": edge_ids}, "reasoning": target["reasoning"]}, separators=(",", ":"))
 
 
-def build_record(plan: dict[str, Any], rooms: list[dict[str, Any]], edges: list[dict[str, str]], question: dict[str, Any], number: int, input_condition: str) -> dict[str, Any]:
+def build_record(plan: dict[str, Any], rooms: list[dict[str, Any]], edges: list[dict[str, str]], question: dict[str, Any], number: int, input_condition: str, topology_policy: str) -> dict[str, Any]:
     row = {"question": question["question"], "answer_format": question["answer_format"], "category": question["category"]}
     graph_data, node_aliases, edge_aliases = serialise_graph(rooms, edges)
     graph_data["plan_id"] = plan["plan_id"]
     image_path = Path(str(plan["image_path"])) if input_condition in {"image_only", "image_graph"} else Path("unused.png")
     messages = make_messages(row, input_condition, image_path, graph_data if input_condition != "image_only" else None)
     target = question["target"] if input_condition == "image_only" else graph_answer_json(question, node_aliases, edge_aliases)
-    return {"schema_version": SCHEMA_VERSION, "sample_id": f"qa_silver_{input_condition}_v1_{number:07d}_{plan['plan_id']}", "plan_id": plan["plan_id"],
+    label_tier = str(plan.get("label_tier", LABEL_TIER))
+    return {"schema_version": SCHEMA_VERSION, "sample_id": f"qa_{label_tier}_{input_condition}_v1_{number:07d}_{plan['plan_id']}", "plan_id": plan["plan_id"],
             "split": plan["split"], "image_path": plan["image_path"], "question": question["question"],
             "gold_answer": question["gold_answer"], "answer_format": question["answer_format"], "category": question["category"],
             "input_condition": input_condition, "messages": [*messages, {"role": "assistant", "content": target}],
-            "provenance": {"label_tier": LABEL_TIER, "source_identity": plan["source_identity"], "source_svg": plan.get("svg_path"),
+            "provenance": {"label_tier": label_tier, "source_identity": plan["source_identity"], "source_svg": plan.get("svg_path"),
                            "question_generation": "deterministic_cubigraph_v1", "input_condition": input_condition,
-                           "known_limitations": "Only CubiGraph threshold doors are direct-access positives; open passages are not supervised."}}
+                           "topology_policy": topology_policy,
+                           "known_limitations": (
+                               "Only observed threshold doors are direct-access positives; missing open passages are unknown."
+                               if topology_policy == "door_only" else
+                               "Use access and path facts only because this corpus declares its reviewed topology complete."
+                           )}}
 
 
 def main() -> None:
@@ -227,6 +242,10 @@ def main() -> None:
     parser.add_argument("--exclude-identities", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--input-condition", choices=("image_only", "graph_only", "image_graph"), default="image_only")
+    parser.add_argument("--topology-policy", choices=sorted(TOPOLOGY_POLICIES), default="door_only",
+                        help="door_only permits counts, geometry, and positive observed-door access only; reviewed_complete also permits compound/path QA.")
+    parser.add_argument("--edge-field", default="silver_edges",
+                        help="Canonical-record edge field to consume (default: silver_edges; use reviewed_edges for reviewed Codex topology).")
     parser.add_argument("--selection-seed", type=int, default=20261020)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
@@ -246,15 +265,21 @@ def main() -> None:
             excluded.append({"plan_id": str(plan_id), "reason": "invalid_plan_metadata"}); continue
         if normalise_identity(identity) in exclusions:
             excluded.append({"plan_id": plan_id, "reason": "explicit_manual20_exclusion"}); continue
-        rooms, edges, reason = prepare_plan(plan)
+        if args.topology_policy == "reviewed_complete" and plan.get("topology_coverage") != "reviewed_complete":
+            excluded.append({"plan_id": plan_id, "reason": "missing_reviewed_complete_topology_declaration"}); continue
+        rooms, edges, reason = prepare_plan(plan, edge_field=args.edge_field)
         if reason:
             excluded.append({"plan_id": plan_id, "reason": reason}); continue
-        selected = select(candidates(plan_id, rooms, edges), plan_id, args.selection_seed)
+        if args.topology_policy == "door_only":
+            # Never expose an open edge in the Stage-1 graph prompt: CubiGraph
+            # cannot reliably label it in this corpus.
+            edges = [edge for edge in edges if edge["relation"] != "open_connected"]
+        selected = select(candidates(plan_id, rooms, edges, topology_policy=args.topology_policy), plan_id, args.selection_seed)
         if not selected:
             excluded.append({"plan_id": plan_id, "reason": "no_answerable_qa_pairs"}); continue
         plan_question_counts[len(selected)] += 1
         for question in selected:
-            output_rows[split].append(build_record(plan, rooms, edges, question, len(output_rows[split]) + 1, args.input_condition))
+            output_rows[split].append(build_record(plan, rooms, edges, question, len(output_rows[split]) + 1, args.input_condition, args.topology_policy))
     for split, rows in output_rows.items():
         (output / f"{split}.jsonl").write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows), encoding="utf-8")
     (output / "excluded_plans.jsonl").write_text("".join(json.dumps(row) + "\n" for row in excluded), encoding="utf-8")
@@ -266,7 +291,13 @@ def main() -> None:
                 "manual20_policy": "All listed Manual20 identities are excluded before QA generation.",
                 "cleaning_policy": "Drop no nodes, no CubiGraph edges, or Other+Outdoor fraction > 0.5.",
                 "input_condition": args.input_condition,
-                "relation_policy": "Explicit connected_by_door and open_connected edges are direct-access positives; absent edges are unknown, not negatives."}
+                "edge_field": args.edge_field,
+                "topology_policy": args.topology_policy,
+                "relation_policy": (
+                    "Only explicit connected_by_door edges are direct-access positives; absent and open-passage edges are unknown."
+                    if args.topology_policy == "door_only" else
+                    "Explicit connected_by_door and open_connected edges are direct-access positives; absent edges are known negatives only because this reviewed corpus declares topology complete."
+                )}
     (output / "dataset_manifest.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(metadata, indent=2))
 

@@ -30,7 +30,7 @@ class BuildQwenQaSftDatasetTest(unittest.TestCase):
         rooms, edges, reason = prepare_plan(plan(edges=[]))
         self.assertEqual((rooms, edges, reason), ([], [], "no_cubigraph_edges"))
 
-    def test_builder_keeps_splits_disjoint_and_emits_five_categories(self):
+    def test_door_only_builder_keeps_splits_disjoint_and_omits_unsafe_path_categories(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             corpus = root / "canonical.jsonl"
@@ -46,18 +46,27 @@ class BuildQwenQaSftDatasetTest(unittest.TestCase):
                 sys.argv = old_argv
             train = [json.loads(line) for line in (output / "train.jsonl").read_text(encoding="utf-8").splitlines()]
             val = [json.loads(line) for line in (output / "val.jsonl").read_text(encoding="utf-8").splitlines()]
-        self.assertEqual(len(train), 5)
-        self.assertEqual(len(val), 5)
+        self.assertEqual(len(train), 3)
+        self.assertEqual(len(val), 3)
         self.assertEqual({row["plan_id"] for row in train}, {"plan-a"})
-        self.assertEqual({row["category"] for row in train}, {"count", "direct_access", "relative_position", "compound_access", "shortest_access_path"})
+        self.assertEqual({row["category"] for row in train}, {"count", "direct_access", "relative_position"})
         self.assertTrue(all(len(row["messages"]) == 3 for row in train))
+
+    def test_reviewed_complete_policy_requires_declaration_and_enables_path_categories(self):
+        source = plan()
+        source["topology_coverage"] = "reviewed_complete"
+        rooms, edges, reason = prepare_plan(source)
+        self.assertIsNone(reason)
+        generated = candidates(source["plan_id"], rooms, edges, topology_policy="reviewed_complete")
+        self.assertTrue(generated["compound_access"])
+        self.assertTrue(generated["shortest_access_path"])
 
     def test_image_graph_record_contains_serialized_graph_and_graph_citations(self):
         source = plan()
         rooms, edges, reason = prepare_plan(source)
         self.assertIsNone(reason)
         question = select(candidates(source["plan_id"], rooms, edges), source["plan_id"], 20261020)[0]
-        record = build_record(source, rooms, edges, question, 1, "image_graph")
+        record = build_record(source, rooms, edges, question, 1, "image_graph", "door_only")
         content = record["messages"][1]["content"]
         self.assertEqual([item["type"] for item in content], ["image", "text", "text"])
         target = json.loads(record["messages"][-1]["content"])

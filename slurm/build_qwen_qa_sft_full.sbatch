@@ -16,6 +16,8 @@ CANONICAL_CORPUS="${CANONICAL_CORPUS:-$PROJECT_DIR/data/cubicasa5k/derived_full_
 EXCLUSIONS="${EXCLUSIONS:-$PROJECT_DIR/data/cubicasa5k/manual20_exclusion_manifest.json}"
 QA_SFT_OUT="${QA_SFT_OUT:-$PROJECT_DIR/data/qwen_qa_sft/cubigraph_v1_filtered_5q}"
 QA_INPUT_CONDITION="${QA_INPUT_CONDITION:-image_only}"
+QA_TOPOLOGY_POLICY="${QA_TOPOLOGY_POLICY:-door_only}"
+QA_EDGE_FIELD="${QA_EDGE_FIELD:-silver_edges}"
 
 [[ "$(uname -m)" == "x86_64" ]] || { echo "Qwen environment requires x86_64" >&2; exit 2; }
 [[ -f "$VENV_DIR/.ready" ]] || { echo "Missing ready marker: $VENV_DIR/.ready" >&2; exit 2; }
@@ -29,4 +31,6 @@ python -m retrieval_app.scripts.build_qwen_qa_sft_dataset \
   --canonical-corpus "$CANONICAL_CORPUS" \
   --exclude-identities "$EXCLUSIONS" \
   --output-dir "$QA_SFT_OUT" \
-  --input-condition "$QA_INPUT_CONDITION"
+  --input-condition "$QA_INPUT_CONDITION" \
+  --topology-policy "$QA_TOPOLOGY_POLICY" \
+  --edge-field "$QA_EDGE_FIELD"
