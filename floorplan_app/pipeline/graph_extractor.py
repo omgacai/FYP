@@ -74,8 +74,9 @@ def generate_door_open_relations(plan, wall_geometries: list[Any]) -> dict[str, 
     preserves the legacy geometry test but gives a shared detected door the
     intended ``via-door`` label. A relation is marked ``open_connected`` only
     when two room polygons share a substantial boundary segment that remains
-    unblocked by an explicit source-SVG wall polygon. Missing wall geometry is
-    not converted into a negative relation.
+    unblocked by an explicit source-SVG wall polygon. When the source contains
+    no wall polygons, a shared boundary remains ordinary spatial adjacency:
+    absence of wall geometry is unknown, never evidence of an opening.
     """
     plan.relation = []
     repairs = {"room_polygons_repaired": 0, "door_polygons_repaired": 0,
@@ -108,7 +109,7 @@ def generate_door_open_relations(plan, wall_geometries: list[Any]) -> dict[str, 
                 unblocked_boundary = shared_boundary
                 if wall_union is not None and not shared_boundary.is_empty:
                     unblocked_boundary = shared_boundary.difference(wall_union.buffer(WALL_CLEARANCE))
-                if (
+                if wall_union is not None and (
                     shared_boundary.length >= OPEN_MIN_SHARED_BOUNDARY
                     and unblocked_boundary.length >= OPEN_MIN_SHARED_BOUNDARY
                     and unblocked_boundary.length / shared_boundary.length >= 0.8
@@ -169,6 +170,7 @@ def extract_graph(svg_result: SVGResult, cubigraph_repo: Path, output_path: Path
             'open_connected_edges': relation_counts[3],
             'source_wall_polygons': len(wall_geometries),
             'source_wall_polygons_skipped': walls_skipped,
+            'open_connection_inference_available': bool(wall_geometries),
             'relation_policy': 'door-first plus unblocked-shared-boundary open candidates',
             'svg_parser_backend': parser_backend,
             **repairs,

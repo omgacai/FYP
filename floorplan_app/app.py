@@ -105,8 +105,13 @@ def show_relation_legend_and_table(graph) -> None:
     st.caption(
         'Relation codes: **2 = connected_by_door**; **3 = open_connected** '
         '(substantial shared room boundary with no source-SVG wall blocking it); '
-        '**1 = adjacent_only**. Code 3 is a candidate to inspect, not ground truth.'
+        '**1 = adjacent_only / access unknown**. Code 3 is a candidate to inspect, not ground truth.'
     )
+    if not graph.diagnostics.get('open_connection_inference_available', False):
+        st.warning(
+            'This SVG has no source Wall polygons. Its non-door room boundaries are '
+            'shown as adjacency only; this file cannot support automatic open-passage labels.'
+        )
     edges = relation_edges(graph.adjacency)
     if edges.empty:
         st.info('No room-to-room edges were extracted.')
