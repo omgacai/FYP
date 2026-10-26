@@ -24,7 +24,7 @@ from retrieval_app.scripts.run_qwen_qa import make_messages
 
 SCHEMA_VERSION = "qwen-floorplan-qa-sft/2"
 LABEL_TIER = "silver_svg_rooms_cubigraph_edges"
-ACCESS_RELATIONS = {"connected_by_door"}
+ACCESS_RELATIONS = {"connected_by_door", "open_connected"}
 COUNTABLE_TYPES = {"Bedroom", "Bath", "Kitchen", "LivingRoom", "Dining", "Corridor", "Entry"}
 TYPE_PLURALS = {
     "Bedroom": "bedrooms", "Bath": "bathrooms", "Kitchen": "kitchens", "LivingRoom": "living rooms",
@@ -79,7 +79,7 @@ def prepare_plan(record: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dic
         if not isinstance(edge, dict):
             continue
         a, b, relation = edge.get("room_a"), edge.get("room_b"), edge.get("predicate")
-        if a not in room_ids or b not in room_ids or a == b or relation not in {"adjacent_to", "connected_by_door"}:
+        if a not in room_ids or b not in room_ids or a == b or relation not in {"adjacent_to", "connected_by_door", "open_connected"}:
             continue
         key = tuple(sorted((a, b)))
         if key in seen:
@@ -192,7 +192,7 @@ def serialise_graph(rooms: list[dict[str, Any]], edges: list[dict[str, str]]) ->
             continue
         edge_id = f"E{len(graph_edges) + 1}"
         edge_aliases[key] = edge_id
-        relation = "direct_access" if edge["relation"] == "connected_by_door" else edge["relation"]
+        relation = "direct_access" if edge["relation"] in ACCESS_RELATIONS else edge["relation"]
         graph_edges.append({"a": aliases[edge["a"]], "b": aliases[edge["b"]], "relation": relation, "edge_id": edge_id})
     graph = {"plan_id": None, "nodes": [{"id": aliases[room["id"]], "label": room["label"], "type": room["type"], "x": room["x"], "y": room["y"]} for room in rooms], "edges": graph_edges}
     return graph, aliases, edge_aliases
@@ -266,7 +266,7 @@ def main() -> None:
                 "manual20_policy": "All listed Manual20 identities are excluded before QA generation.",
                 "cleaning_policy": "Drop no nodes, no CubiGraph edges, or Other+Outdoor fraction > 0.5.",
                 "input_condition": args.input_condition,
-                "relation_policy": "CubiGraph v1: only connected_by_door is direct access; open_connected is not supervised."}
+                "relation_policy": "Explicit connected_by_door and open_connected edges are direct-access positives; absent edges are unknown, not negatives."}
     (output / "dataset_manifest.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(metadata, indent=2))
 

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import warnings
 from pathlib import Path
+from typing import Any
 
 from bs4 import BeautifulSoup, FeatureNotFound, XMLParsedAsHTMLWarning
+from shapely.geometry import Polygon
+from shapely.ops import unary_union
 
 from floorplan_app.core.models import GraphResult, SVGResult
 
@@ -20,17 +24,62 @@ def _repair_geometry(geometry):
     return repaired, True
 
 
-def generate_door_first_relations(plan) -> dict[str, int]:
-    """Generate mutually exclusive graph labels with valid-door evidence first.
+OPEN_MIN_SHARED_BOUNDARY = 20.0
+WALL_CLEARANCE = 0.5
+
+
+def _points(value: str) -> list[tuple[float, float]]:
+    """Parse the simple SVG polygon format used by CubiCasa model.svg files."""
+    values = [float(number) for number in re.findall(r"[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?", value)]
+    if len(values) < 6 or len(values) % 2:
+        raise ValueError("polygon needs at least three x,y points")
+    return list(zip(values[::2], values[1::2]))
+
+
+def source_wall_geometries(svg: Any) -> tuple[list[Any], int]:
+    """Return valid top-level Wall polygons from a CubiCasa source SVG.
+
+    Door and window polygons are nested inside Wall groups, so only a direct
+    child polygon represents the wall body. This avoids treating a threshold
+    itself as a blocker for an open-passage candidate.
+    """
+    walls: list[Any] = []
+    skipped = 0
+    for group in svg.find_all("g"):
+        classes = set(group.get("class", []))
+        if "Wall" not in classes:
+            continue
+        polygon = group.find("polygon", recursive=False)
+        if polygon is None or not isinstance(polygon.get("points"), str):
+            skipped += 1
+            continue
+        try:
+            geometry, repaired = _repair_geometry(Polygon(_points(polygon["points"])))
+            if geometry.is_empty or geometry.area <= 0:
+                skipped += 1
+                continue
+            walls.append(geometry)
+            skipped += int(repaired)
+        except (TypeError, ValueError):
+            skipped += 1
+    return walls, skipped
+
+
+def generate_door_open_relations(plan, wall_geometries: list[Any]) -> dict[str, int]:
+    """Generate door, open-passage, then adjacency relations from source SVG.
 
     CubiGraph's original implementation tests buffered polygon adjacency before
     shared doors.  Since ordinary interior doors lie on a shared boundary, that
     makes a door relation almost impossible to observe.  This owned policy
     preserves the legacy geometry test but gives a shared detected door the
-    intended ``via-door`` label.
+    intended ``via-door`` label. A relation is marked ``open_connected`` only
+    when two room polygons share a substantial boundary segment that remains
+    unblocked by an explicit source-SVG wall polygon. Missing wall geometry is
+    not converted into a negative relation.
     """
     plan.relation = []
-    repairs = {"room_polygons_repaired": 0, "door_polygons_repaired": 0}
+    repairs = {"room_polygons_repaired": 0, "door_polygons_repaired": 0,
+               "open_connected_edges": 0}
     room_geometries = {}
     door_geometries = {}
     for room in plan.rooms:
@@ -42,6 +91,7 @@ def generate_door_first_relations(plan) -> dict[str, int]:
         geometry, repaired = _repair_geometry(door.to_shapely_polygon())
         door_geometries[door.name] = geometry
         repairs["door_polygons_repaired"] += int(repaired)
+    wall_union = unary_union(wall_geometries) if wall_geometries else None
     for room in plan.rooms:
         for door_name, door_geometry in door_geometries.items():
             if room_geometries[room.name].intersection(door_geometry.buffer(1.0)).area > 10.0:
@@ -51,12 +101,26 @@ def generate_door_first_relations(plan) -> dict[str, int]:
             shared_door = room1.adjacent_doors.intersection(room2.adjacent_doors)
             if shared_door:
                 label = 2  # via-door
-            elif room_geometries[room1.name].buffer(1.0).intersection(
-                room_geometries[room2.name].buffer(1.0)
-            ).area > 5.0:
-                label = 1  # adjacent only
             else:
-                label = 0
+                shared_boundary = room_geometries[room1.name].boundary.intersection(
+                    room_geometries[room2.name].boundary
+                )
+                unblocked_boundary = shared_boundary
+                if wall_union is not None and not shared_boundary.is_empty:
+                    unblocked_boundary = shared_boundary.difference(wall_union.buffer(WALL_CLEARANCE))
+                if (
+                    shared_boundary.length >= OPEN_MIN_SHARED_BOUNDARY
+                    and unblocked_boundary.length >= OPEN_MIN_SHARED_BOUNDARY
+                    and unblocked_boundary.length / shared_boundary.length >= 0.8
+                ):
+                    label = 3  # open passage, supported by an unblocked shared boundary
+                    repairs["open_connected_edges"] += 1
+                elif room_geometries[room1.name].buffer(1.0).intersection(
+                    room_geometries[room2.name].buffer(1.0)
+                ).area > 5.0:
+                    label = 1  # adjacent only
+                else:
+                    label = 0
             plan.relation.append((room1.name, label, room2.name))
     return repairs
 
@@ -86,10 +150,11 @@ def extract_graph(svg_result: SVGResult, cubigraph_repo: Path, output_path: Path
         soup = BeautifulSoup(svg_result.svg_text, 'html.parser')
         parser_backend = 'html.parser fallback'
     plan = Plan(soup.find('svg'))
-    repairs = generate_door_first_relations(plan)
+    wall_geometries, walls_skipped = source_wall_geometries(soup)
+    repairs = generate_door_open_relations(plan, wall_geometries)
     adjacency = plan.get_adjacency_list()
     output_path.write_text(str(plan.generate_relation_svg()), encoding='utf-8')
-    relation_counts = {1: 0, 2: 0}
+    relation_counts = {1: 0, 2: 0, 3: 0}
     for neighbours in adjacency.values():
         for relation in neighbours.values():
             if relation in relation_counts:
@@ -101,7 +166,10 @@ def extract_graph(svg_result: SVGResult, cubigraph_repo: Path, output_path: Path
         diagnostics={
             'nodes': len(adjacency), 'adjacent_edges': relation_counts[1],
             'door_connected_edges': relation_counts[2],
-            'relation_policy': 'door-first experimental',
+            'open_connected_edges': relation_counts[3],
+            'source_wall_polygons': len(wall_geometries),
+            'source_wall_polygons_skipped': walls_skipped,
+            'relation_policy': 'door-first plus unblocked-shared-boundary open candidates',
             'svg_parser_backend': parser_backend,
             **repairs,
             'adjacency_json': json.dumps(adjacency, indent=2),
