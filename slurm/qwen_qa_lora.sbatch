@@ -2,7 +2,7 @@
 # Qwen QA LoRA launch. Input modality is read from the SFT dataset manifest.
 #SBATCH --job-name=qwen-qa-lora
 #SBATCH --partition=gpu
-#SBATCH --gres=gpu:a100-80:1
+#SBATCH --gres=gpu:h100-96:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=06:00:00
@@ -23,6 +23,8 @@ QA_MAX_STEPS="${QA_MAX_STEPS:--1}"
 QA_PER_DEVICE_TRAIN_BATCH_SIZE="${QA_PER_DEVICE_TRAIN_BATCH_SIZE:-16}"
 QA_GRADIENT_ACCUMULATION_STEPS="${QA_GRADIENT_ACCUMULATION_STEPS:-1}"
 QA_INPUT_CONDITION="${QA_INPUT_CONDITION:-image_only}"
+QA_LEARNING_RATE="${QA_LEARNING_RATE:-2e-4}"
+QA_INIT_ADAPTER="${QA_INIT_ADAPTER:-}"
 
 [[ "$(uname -m)" == "x86_64" ]] || { echo "Qwen environment requires x86_64" >&2; exit 2; }
 [[ -f "$VENV_DIR/.ready" ]] || { echo "Missing ready marker: $VENV_DIR/.ready" >&2; exit 2; }
@@ -34,20 +36,26 @@ export HF_HOME="$CACHE_ROOT/huggingface" TOKENIZERS_PARALLELISM=false
 source "$VENV_DIR/bin/activate"
 cd "$REPO_DIR"
 
-python -m retrieval_app.scripts.train_qwen_graph_lora \
-  --dataset-dir "$QA_SFT_DATASET_DIR" \
-  --corpus-root "$CUBICASA_ROOT" \
-  --output-dir "$QA_OUTPUT_DIR" \
-  --task-name "qa_${QA_INPUT_CONDITION}_cubigraph_v1" \
-  --epochs "$QA_EPOCHS" \
-  --max-steps "$QA_MAX_STEPS" \
-  --learning-rate 2e-4 \
-  --lora-r 16 \
-  --lora-alpha 32 \
-  --per-device-train-batch-size "$QA_PER_DEVICE_TRAIN_BATCH_SIZE" \
-  --gradient-accumulation-steps "$QA_GRADIENT_ACCUMULATION_STEPS" \
-  --eval-strategy epoch \
-  --save-strategy epoch \
-  --eval-steps 1 \
-  --save-steps 1 \
+TRAIN_ARGS=(
+  --dataset-dir "$QA_SFT_DATASET_DIR"
+  --corpus-root "$CUBICASA_ROOT"
+  --output-dir "$QA_OUTPUT_DIR"
+  --task-name "qa_${QA_INPUT_CONDITION}_cubigraph_v1"
+  --epochs "$QA_EPOCHS"
+  --max-steps "$QA_MAX_STEPS"
+  --learning-rate "$QA_LEARNING_RATE"
+  --lora-r 16
+  --lora-alpha 32
+  --per-device-train-batch-size "$QA_PER_DEVICE_TRAIN_BATCH_SIZE"
+  --gradient-accumulation-steps "$QA_GRADIENT_ACCUMULATION_STEPS"
+  --eval-strategy epoch
+  --save-strategy epoch
+  --eval-steps 1
+  --save-steps 1
   --max-pixels 501760
+)
+if [[ -n "$QA_INIT_ADAPTER" ]]; then
+  TRAIN_ARGS+=(--init-adapter "$QA_INIT_ADAPTER")
+fi
+
+python -m retrieval_app.scripts.train_qwen_graph_lora "${TRAIN_ARGS[@]}"

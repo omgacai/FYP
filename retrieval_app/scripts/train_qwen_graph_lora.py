@@ -156,6 +156,8 @@ def main() -> None:
     parser.add_argument("--dataset-dir", type=Path, required=True, help="Directory with train.jsonl and val.jsonl")
     parser.add_argument("--corpus-root", type=Path, required=True, help="Root resolving relative image_path values")
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--init-adapter", type=Path,
+                        help="Optional existing LoRA adapter to continue training; output must be a fresh directory.")
     parser.add_argument("--model", default="Qwen/Qwen3-VL-8B-Instruct")
     parser.add_argument("--epochs", type=float, default=1.0)
     parser.add_argument("--max-steps", type=int, default=20, help="Positive value caps a smoke run; -1 uses --epochs")
@@ -180,7 +182,7 @@ def main() -> None:
 
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     import torch
-    from peft import LoraConfig, TaskType, get_peft_model
+    from peft import LoraConfig, PeftModel, TaskType, get_peft_model
     from transformers import AutoProcessor, Qwen3VLForConditionalGeneration, Trainer, TrainingArguments, set_seed
 
     if not torch.cuda.is_available():
@@ -202,6 +204,7 @@ def main() -> None:
         "gradient_accumulation_steps": args.gradient_accumulation_steps, "max_pixels": args.max_pixels,
         "eval_strategy": args.eval_strategy, "save_strategy": args.save_strategy,
         "eval_steps": args.eval_steps, "save_steps": args.save_steps,
+        "init_adapter": str(args.init_adapter.expanduser().resolve()) if args.init_adapter else None,
         "tensorboard_dir": str(output_dir / "tensorboard"),
         "seed": args.seed, "torch": torch.__version__, "cuda_device": torch.cuda.get_device_name(0),
     }, indent=2) + "\n", encoding="utf-8")
@@ -210,12 +213,18 @@ def main() -> None:
     processor.tokenizer.padding_side = "right"
     model = Qwen3VLForConditionalGeneration.from_pretrained(args.model, torch_dtype=torch.bfloat16)
     model.config.use_cache = False
-    lora = LoraConfig(
-        task_type=TaskType.CAUSAL_LM, r=args.lora_r, lora_alpha=args.lora_alpha,
-        lora_dropout=args.lora_dropout, bias="none",
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
-    )
-    model = get_peft_model(model, lora)
+    if args.init_adapter:
+        init_adapter = args.init_adapter.expanduser().resolve()
+        if not (init_adapter / "adapter_config.json").is_file():
+            raise FileNotFoundError(f"--init-adapter must contain adapter_config.json: {init_adapter}")
+        model = PeftModel.from_pretrained(model, str(init_adapter), is_trainable=True)
+    else:
+        lora = LoraConfig(
+            task_type=TaskType.CAUSAL_LM, r=args.lora_r, lora_alpha=args.lora_alpha,
+            lora_dropout=args.lora_dropout, bias="none",
+            target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+        )
+        model = get_peft_model(model, lora)
     model.print_trainable_parameters()
     training_args = TrainingArguments(
         output_dir=str(output_dir), per_device_train_batch_size=args.per_device_train_batch_size, per_device_eval_batch_size=1,

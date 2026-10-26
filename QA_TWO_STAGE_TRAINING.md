@@ -34,6 +34,18 @@ After it succeeds, inspect `dataset_manifest.json`; it must report
 `"topology_policy": "door_only"`. Train into a new adapter directory—do not
 overwrite the previous image-only or image+graph adapters.
 
+```bash
+export CUBICASA_ROOT=~/vlm/data/cubicasa5k
+export QA_SFT_DATASET_DIR=~/vlm/data/qwen_qa_sft/cubigraph_v2_door_only_3q_image_graph_v1
+export QA_RUN_NAME=cubigraph_v2_door_only_image_graph_batch4_3epochs_v1
+export QA_OUTPUT_DIR=~/vlm/outputs/qwen_qa_lora/$QA_RUN_NAME
+export QA_INPUT_CONDITION=image_graph
+export QA_EPOCHS=3
+export QA_PER_DEVICE_TRAIN_BATCH_SIZE=4
+export QA_GRADIENT_ACCUMULATION_STEPS=4
+sbatch --partition=gpu --gres=gpu:h100-96:1 slurm/qwen_qa_lora.sbatch
+```
+
 ## Stage 2: reviewed Codex topology data
 
 The 100-plan Codex corpus must be plan-disjoint across train/validation and
@@ -69,3 +81,5 @@ sbatch --partition=gpu --gres=gpu:h100-96:1 slurm/build_qwen_qa_sft_full.sbatch
 Do not use the Stage-1 CubiGraph corpus with this policy.
 Stage 2 should continue from the Stage-1 adapter at a lower learning rate and
 include a sampled 20–30% Stage-1 replay set; preserve plan-disjoint validation.
+The launcher supports continuation through `QA_INIT_ADAPTER`; always write the
+continued adapter to a fresh `QA_OUTPUT_DIR`.
