@@ -25,7 +25,7 @@ from retrieval_app.scripts.run_qwen_qa import make_messages
 SCHEMA_VERSION = "qwen-floorplan-qa-sft/3"
 LABEL_TIER = "silver_svg_rooms_cubigraph_edges"
 ACCESS_RELATIONS = {"connected_by_door", "open_connected"}
-TOPOLOGY_POLICIES = {"door_only", "reviewed_complete"}
+TOPOLOGY_POLICIES = {"door_only", "positive_access_silver", "reviewed_complete"}
 COUNTABLE_TYPES = {"Bedroom", "Bath", "Kitchen", "LivingRoom", "Dining", "Corridor", "Entry"}
 TYPE_PLURALS = {
     "Bedroom": "bedrooms", "Bath": "bathrooms", "Kitchen": "kitchens", "LivingRoom": "living rooms",
@@ -142,9 +142,9 @@ def candidates(plan_id: str, rooms: list[dict[str, Any]], edges: list[dict[str, 
                                                     "target": image_answer_json(relation, f"{a['label']} is {relation.replace('_', ' ')} of {b['label']}.",
                                                                           f"The layout places {a['label']} {relation.replace('_', ' ')} of {b['label']}."),
                                                     "support_nodes": [a["id"], b["id"]], "support_edges": []})
-    if topology_policy == "door_only":
-        # A threshold-door graph is incomplete: no compound/path claim may be
-        # inferred from omitted open passages.
+    if topology_policy != "reviewed_complete":
+        # Door-only and Codex-positive silver graphs are incomplete: no
+        # compound/path claim may be inferred from omitted access edges.
         return result
 
     neighbours: dict[str, set[str]] = {room["id"]: set() for room in rooms}
@@ -243,7 +243,7 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--input-condition", choices=("image_only", "graph_only", "image_graph"), default="image_only")
     parser.add_argument("--topology-policy", choices=sorted(TOPOLOGY_POLICIES), default="door_only",
-                        help="door_only permits counts, geometry, and positive observed-door access only; reviewed_complete also permits compound/path QA.")
+                        help="door_only: doors only; positive_access_silver: explicit door/open positives only; reviewed_complete: also permits compound/path QA.")
     parser.add_argument("--edge-field", default="silver_edges",
                         help="Canonical-record edge field to consume (default: silver_edges; use reviewed_edges for reviewed Codex topology).")
     parser.add_argument("--selection-seed", type=int, default=20261020)
@@ -296,6 +296,8 @@ def main() -> None:
                 "relation_policy": (
                     "Only explicit connected_by_door edges are direct-access positives; absent and open-passage edges are unknown."
                     if args.topology_policy == "door_only" else
+                    "Explicit connected_by_door and open_connected edges are direct-access positives; absent edges are unknown."
+                    if args.topology_policy == "positive_access_silver" else
                     "Explicit connected_by_door and open_connected edges are direct-access positives; absent edges are known negatives only because this reviewed corpus declares topology complete."
                 )}
     (output / "dataset_manifest.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")

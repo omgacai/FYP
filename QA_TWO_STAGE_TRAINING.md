@@ -49,13 +49,13 @@ sbatch --partition=gpu --gres=gpu:h100-96:1 slurm/qwen_qa_lora.sbatch
 ## Stage 2: reviewed Codex topology data
 
 The 100-plan Codex corpus must be plan-disjoint across train/validation and
-carry this declaration on every canonical record:
+retain the raw proposal status on every canonical record:
 
 ```json
 {
-  "topology_coverage": "reviewed_complete",
-  "label_tier": "codex_silver_reviewed",
-  "review_status": "reviewed",
+  "topology_coverage": "partial",
+  "label_tier": "codex_silver",
+  "review_status": "unreviewed",
   "reviewed_edges": [
     {"room_a": "living_1", "room_b": "dining_1", "predicate": "open_connected"}
   ]
@@ -63,8 +63,11 @@ carry this declaration on every canonical record:
 ```
 
 Retain door versus open mechanisms and per-edge provenance in the source
-annotation. A record may declare `reviewed_complete` only after its topology
-has been checked sufficiently to make absent-access claims and path questions.
+annotation. Initially build this corpus with `positive_access_silver`: it
+permits explicit door/open direct-access positives, but no absence-based,
+compound, or path claims. A record may declare `reviewed_complete` only after
+its topology has been checked sufficiently to make absent-access and path
+questions.
 
 Build it with `--topology-policy reviewed_complete` only from that reviewed
 canonical corpus:
@@ -73,12 +76,12 @@ canonical corpus:
 export CANONICAL_CORPUS=~/vlm/data/cubicasa5k/codex_topology_100/canonical.jsonl
 export QA_SFT_OUT=~/vlm/data/qwen_qa_sft/codex_topology_100_complete_image_graph_v1
 export QA_INPUT_CONDITION=image_graph
-export QA_TOPOLOGY_POLICY=reviewed_complete
+export QA_TOPOLOGY_POLICY=positive_access_silver
 export QA_EDGE_FIELD=reviewed_edges
 sbatch --partition=gpu --gres=gpu:h100-96:1 slurm/build_qwen_qa_sft_full.sbatch
 ```
 
-Do not use the Stage-1 CubiGraph corpus with this policy.
+Do not use the Stage-1 CubiGraph corpus with `reviewed_complete`.
 Stage 2 should continue from the Stage-1 adapter at a lower learning rate and
 include a sampled 20–30% Stage-1 replay set; preserve plan-disjoint validation.
 The launcher supports continuation through `QA_INIT_ADAPTER`; always write the

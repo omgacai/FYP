@@ -61,6 +61,15 @@ class BuildQwenQaSftDatasetTest(unittest.TestCase):
         self.assertTrue(generated["compound_access"])
         self.assertTrue(generated["shortest_access_path"])
 
+    def test_positive_access_silver_accepts_open_positive_but_not_paths(self):
+        source = plan(edges=[{"room_a": "entry", "room_b": "corridor", "predicate": "open_connected"}])
+        rooms, edges, reason = prepare_plan(source)
+        self.assertIsNone(reason)
+        generated = candidates(source["plan_id"], rooms, edges, topology_policy="positive_access_silver")
+        self.assertTrue(generated["direct_access"])
+        self.assertFalse(generated["compound_access"])
+        self.assertFalse(generated["shortest_access_path"])
+
     def test_image_graph_record_contains_serialized_graph_and_graph_citations(self):
         source = plan()
         rooms, edges, reason = prepare_plan(source)
