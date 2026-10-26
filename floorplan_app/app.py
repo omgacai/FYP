@@ -199,7 +199,7 @@ else:
 if st.button('Run pipeline', type='primary'):
     with st.spinner('Running parser, SVG extraction, then CubiGraph…'):
         try:
-            if source_choice == 'Upload SVG':
+            if source_choice == 'Upload SVG (recommended for CubiCasa labels)':
                 svg_result, graph = run_svg_pipeline(svg_bytes, image_label, PIPELINE_REVISION)
                 st.session_state['latest'] = {'mode': 'svg', 'svg': svg_result, 'graph': graph, 'label': image_label}
             else:
