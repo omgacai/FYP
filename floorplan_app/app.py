@@ -155,12 +155,15 @@ def run_svg_pipeline(svg_bytes: bytes, svg_label: str, pipeline_revision: str):
 
 st.set_page_config(page_title='Floorplan Pipeline Inspector', layout='wide')
 st.title('Floorplan → SVG → Graph Inspector')
-st.caption('Use this to locate whether an error began in image parsing, SVG conversion, or deterministic graph extraction.')
+st.caption('Use the CubiCasa source-SVG route for topology labels; image upload is only a noisier end-to-end diagnostic.')
 
 with st.sidebar:
     st.header('Pipeline controls')
-    source_choice = st.radio('Pipeline input', ['Default image', 'Upload image', 'Upload SVG'])
-    if source_choice != 'Upload SVG':
+    source_choice = st.radio(
+        'Pipeline input',
+        ['Upload SVG (recommended for CubiCasa labels)', 'Upload image', 'Default image'],
+    )
+    if source_choice != 'Upload SVG (recommended for CubiCasa labels)':
         parser_name = st.selectbox('Parser', registry.names(), help='New parsers appear here when registered in parsers/.')
         parser = registry.create(parser_name)
         st.caption(parser.description)
@@ -168,14 +171,14 @@ with st.sidebar:
         threshold = st.slider('Structure post-processing threshold', 0.05, 0.60, 0.20, step=0.05)
         st.caption('Lower threshold finds more walls/openings but can introduce noise.')
     else:
-        st.caption('Skip image parsing and run CubiGraph directly on an SVG.')
+        st.caption('Recommended for CubiCasa labels: run CubiGraph directly on the source SVG, preserving its room and wall geometry.')
     if st.button('Clear cached pipeline result'):
         run_pipeline.clear()
         run_svg_pipeline.clear()
         st.session_state.pop('latest', None)
         st.experimental_rerun()
 
-if source_choice == 'Upload SVG':
+if source_choice == 'Upload SVG (recommended for CubiCasa labels)':
     uploaded_svg = st.file_uploader('Upload a CubiGraph-compatible SVG', type=['svg'])
     if uploaded_svg is None:
         st.info('Upload an SVG to run CubiGraph directly.')
