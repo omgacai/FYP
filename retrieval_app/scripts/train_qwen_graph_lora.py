@@ -171,6 +171,8 @@ def main() -> None:
     parser.add_argument("--eval-strategy", choices=("steps", "epoch"), default="steps")
     parser.add_argument("--save-strategy", choices=("steps", "epoch"), default="steps")
     parser.add_argument("--max-pixels", type=int, default=501_760)
+    parser.add_argument("--gradient-checkpointing", action="store_true",
+                        help="Recompute activations during backward pass to reduce GPU memory use.")
     parser.add_argument("--per-device-train-batch-size", type=int, default=1)
     parser.add_argument("--seed", type=int, default=20261017)
     parser.add_argument("--task-name", default="graph_extraction", help="Auditable label for this SFT run.")
@@ -202,6 +204,7 @@ def main() -> None:
         "max_steps": args.max_steps, "learning_rate": args.learning_rate, "lora_r": args.lora_r,
         "lora_alpha": args.lora_alpha, "lora_dropout": args.lora_dropout, "per_device_train_batch_size": args.per_device_train_batch_size,
         "gradient_accumulation_steps": args.gradient_accumulation_steps, "max_pixels": args.max_pixels,
+        "gradient_checkpointing": args.gradient_checkpointing,
         "eval_strategy": args.eval_strategy, "save_strategy": args.save_strategy,
         "eval_steps": args.eval_steps, "save_steps": args.save_steps,
         "init_adapter": str(args.init_adapter.expanduser().resolve()) if args.init_adapter else None,
@@ -225,6 +228,10 @@ def main() -> None:
             target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
         )
         model = get_peft_model(model, lora)
+    if args.gradient_checkpointing:
+        # LoRA leaves input embeddings frozen; checkpointed layers still need
+        # their inputs to carry gradients for adapter updates.
+        model.enable_input_require_grads()
     model.print_trainable_parameters()
     training_args = TrainingArguments(
         output_dir=str(output_dir), per_device_train_batch_size=args.per_device_train_batch_size, per_device_eval_batch_size=1,
@@ -237,6 +244,7 @@ def main() -> None:
         metric_for_best_model="eval_token_accuracy", greater_is_better=True,
         report_to="none", remove_unused_columns=False, seed=args.seed,
         dataloader_num_workers=0, optim="adamw_torch",
+        gradient_checkpointing=args.gradient_checkpointing,
     )
     collator = RasterSftCollator(processor=processor, corpus_root=corpus_root)
     trainer = Trainer(

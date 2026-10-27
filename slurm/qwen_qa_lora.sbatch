@@ -25,6 +25,8 @@ QA_GRADIENT_ACCUMULATION_STEPS="${QA_GRADIENT_ACCUMULATION_STEPS:-1}"
 QA_INPUT_CONDITION="${QA_INPUT_CONDITION:-image_only}"
 QA_LEARNING_RATE="${QA_LEARNING_RATE:-2e-4}"
 QA_INIT_ADAPTER="${QA_INIT_ADAPTER:-}"
+QA_MAX_PIXELS="${QA_MAX_PIXELS:-501760}"
+QA_GRADIENT_CHECKPOINTING="${QA_GRADIENT_CHECKPOINTING:-0}"
 
 [[ "$(uname -m)" == "x86_64" ]] || { echo "Qwen environment requires x86_64" >&2; exit 2; }
 [[ -f "$VENV_DIR/.ready" ]] || { echo "Missing ready marker: $VENV_DIR/.ready" >&2; exit 2; }
@@ -52,10 +54,13 @@ TRAIN_ARGS=(
   --save-strategy epoch
   --eval-steps 1
   --save-steps 1
-  --max-pixels 501760
+  --max-pixels "$QA_MAX_PIXELS"
 )
 if [[ -n "$QA_INIT_ADAPTER" ]]; then
   TRAIN_ARGS+=(--init-adapter "$QA_INIT_ADAPTER")
+fi
+if [[ "$QA_GRADIENT_CHECKPOINTING" == "1" ]]; then
+  TRAIN_ARGS+=(--gradient-checkpointing)
 fi
 
 python -m retrieval_app.scripts.train_qwen_graph_lora "${TRAIN_ARGS[@]}"
