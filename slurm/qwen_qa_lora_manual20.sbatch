@@ -23,6 +23,7 @@ QA_GRAPH_DIR="${QA_GRAPH_DIR:-$HOME/vlm/data/manual20/annotations}"
 QA_GRAPH_SOURCE="${QA_GRAPH_SOURCE:-gold_manual}"
 QA_NUM_SHARDS="${QA_NUM_SHARDS:-4}"
 QA_SHARD_INDEX="${QA_SHARD_INDEX:-${SLURM_ARRAY_TASK_ID:-0}}"
+QA_MAX_PIXELS="${QA_MAX_PIXELS:-1048576}"
 
 [[ "$QA_CONDITION" == "image_only" || "$QA_CONDITION" == "graph_only" || "$QA_CONDITION" == "image_graph" ]] || {
   echo "QA_CONDITION must be image_only, graph_only, or image_graph" >&2; exit 2;
@@ -42,7 +43,7 @@ fi
 OUTPUT_PATH="$QA_OUTPUT_DIR/${OUTPUT_STEM}.shard${QA_SHARD_INDEX}.jsonl"
 args=(--questions "$QA_QUESTIONS" --images-dir "$QA_IMAGES_DIR" --adapter "$QA_ADAPTER" \
   --output "$OUTPUT_PATH" --condition "$QA_CONDITION" --num-shards "$QA_NUM_SHARDS" \
-  --shard-index "$QA_SHARD_INDEX" --max-pixels 1048576 --max-new-tokens 512)
+  --shard-index "$QA_SHARD_INDEX" --max-pixels "$QA_MAX_PIXELS" --max-new-tokens 512)
 if [[ "$QA_CONDITION" != "image_only" ]]; then
   args+=(--graph-dir "$QA_GRAPH_DIR" --graph-source "$QA_GRAPH_SOURCE")
 fi
